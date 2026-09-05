@@ -1,6 +1,6 @@
 # Resource links for DeepSeek Harness
 
-This independent plugin discovers existing filesystem paths in displayed Chat messages and routes explicit resource opens. It is an uninstalled candidate; test and build evidence does not establish accepted deployment. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
+This independent plugin discovers existing filesystem paths in displayed Chat messages and routes explicit resource opens. It is a privately validated candidate, not installed in the managed Web service or accepted by the user. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
 
 The [package reference](packages/dsh-resource-links/README.md) owns recognition, configuration and routing behavior. [STATE](.intent/state/STATE.md) records intended behavior; [LOG](.intent/LOG.md) records executed evidence. The [ownership note](docs/agent-notes/resource-links-ownership.md) explains the direct transfer of Chat routing from the manager.
 
@@ -22,3 +22,5 @@ DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PRO
 ```
 
 The profile must already compose the file manager, generic resource workbench and right sidebar. Those plugins own their respective installation transactions. Do not hand-edit profile dependency or Bundle JSON. Setup requires the adapter patch maintained in this repository; it does not adopt historical patches owned by other plugins.
+
+Uninstall can resume after the dependency transaction has completed. It verifies absence from the manifest, lockfile and composed profile, then removes a leftover package symlink only when it resolves to this exact checkout. A different target or a real directory is retained and reported as a conflict. Host reversal and Client catalog regeneration follow verified package removal.

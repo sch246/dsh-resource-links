@@ -2,13 +2,14 @@ import { readFileSync, realpathSync, existsSync, lstatSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
+import { removeOwnedLink } from './removed-link.mjs'
 
 const checkout = process.env.DSH_CHECKOUT
 const home = process.env.DSH_HOME
 const profile = process.env.DSH_PROFILE
 if (!checkout || !home || !profile) throw new Error('Set DSH_CHECKOUT, DSH_HOME and DSH_PROFILE explicitly')
 const mode = process.argv[2] ?? '--check'
-if (!['--check', '--verify', '--removed'].includes(mode)) throw new Error(`Unknown profile inspection mode: ${mode}`)
+if (!['--check', '--verify', '--removed', '--remove-dependency', '--finish-removal'].includes(mode)) throw new Error(`Unknown profile inspection mode: ${mode}`)
 const name = '@dsh-external/dsh-resource-links'
 const target = realpathSync(join(import.meta.dirname, '../packages/dsh-resource-links'))
 const root = join(home, 'profiles', profile)
@@ -34,10 +35,10 @@ const count = (manifest.dsh?.profile?.bundles ?? []).filter(value => value === n
 const installedPath = join(root, 'node_modules', name)
 const installed = lstatSync(installedPath, { throwIfNoEntry: false }) !== undefined
 if (dependency === undefined) {
-  if (count !== 0 || locked !== undefined || installed) throw new Error('Mixed profile state: undeclared resource-links Bundle, lock or installation remains')
+  if (count !== 0 || locked !== undefined || (installed && mode !== '--finish-removal' && mode !== '--remove-dependency')) throw new Error('Mixed profile state: undeclared resource-links Bundle, lock or installation remains')
   if (mode === '--verify') throw new Error('Resource links is not installed')
 } else {
-  if (mode === '--removed') throw new Error('Resource links dependency remains')
+  if (mode === '--removed' || mode === '--finish-removal') throw new Error('Resource links dependency remains')
   const specifier = `link:${target}`
   if (dependency !== specifier || locked?.specifier !== specifier) throw new Error('Resource links manifest/lock specifier does not identify this checkout')
   if (!locked.version.startsWith('link:') || realpathSync(resolve(root, locked.version.slice(5))) !== target) throw new Error('Resource links lock target differs from this checkout')
@@ -57,4 +58,10 @@ function rows(entries) {
 }
 const composedCount = rows(tree).filter(entry => entry.name === name).length
 if (composedCount !== Number(dependency !== undefined)) throw new Error('Resource links composed row disagrees with installation')
+if (mode === '--remove-dependency') {
+  if (dependency !== undefined) console.log(cli(['plugin', '--profile', profile, 'remove', name]))
+  else console.log('Resource links dependency, lock entry and composition are absent; checking residual installation next.')
+  process.exit(0)
+}
+if (mode === '--finish-removal') removeOwnedLink(installedPath, target)
 console.log(dependency === undefined ? 'Resource links is absent from manifest, lock, installation and composition.' : 'Resource links manifest, lock, installation, Bundle and composition identify this checkout.')
