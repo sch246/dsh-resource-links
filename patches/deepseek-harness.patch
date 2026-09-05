@@ -1,0 +1,1218 @@
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.i18n.yaml b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.i18n.yaml
+new file mode 100644
+index 0000000000..cee4c86383
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md
++2026-09-05-chat-async-text-links.md: 67a4669d81aadafdd2d17ef393b0fae3ebd6f426
++2026-09-05-chat-async-text-links.zh.md: 2dfd28151a41e61fe2911f1a9cfb8077103637f1
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md
+new file mode 100644
+index 0000000000..67a4669d81
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md
+@@ -0,0 +1,31 @@
++# Agent Note: Chat asynchronous text link display
++
++Status: implemented
++
++English | [中文](2026-09-05-chat-async-text-links.zh.md)
++
++## Problem
++
++Resource recognition can require asynchronous metadata, while Chat's closing-file mention callback is synchronous and limited to a completed Turn's produced files. Resource plugins need to decorate existing text without replacing Chat, scanning the DOM, or rewriting the Session log.
++
++## Decision
++
++Chat consumes one optional `chatTextLinks` provider through stable callbacks created in `apply`. The provider owns recognition and routing. Primitives own only ordered UTF-16 ranges, inline buttons, and component-private asynchronous completion. A text or callback change, or unmount, invalidates pending results. Discovery rejection preserves ordinary projection; opening rejection reaches Chat's existing retry channel with the original target and operation kind.
++
++Settled Markdown resolves prose in text mode and inline code or non-allowlisted authored destinations in exact-target mode. Safe external URLs retain their hyperlinks. Link children remain non-interactive, and fence code and reasoning are outside discovery. Streaming keeps its incremental parser and cached blocks; new links appear after settlement. User text retains its reference-chip projection on uncovered segments and inside matched reference tokens.
++
++The [closing-file mention provider](../feature/2026-08-07-web-inline-file-mentions.md) retains its produced-file policy and supplies inline-code fallback. The [workspace-file waterfall](2026-09-05-chat-workspace-file-open-waterfall.md) owns existing file actions, including `.`; no native-only directory bypass exists. This note supplements both owners without replacing their policy or middleware rationale.
++
++## Alternatives considered
++
++**Parse resource paths in Chat or primitives.** Rejected because resource existence, metadata, and routing belong to the external plugin and must disappear with it.
++
++**Scan and mutate the rendered DOM.** Rejected because React and an external scanner would both own interactive elements, and streaming updates could invalidate injected handlers.
++
++**Resolve each growing reply in full.** Rejected because it discards the incremental renderer's bounded tail work. Settlement is the discovery point.
++
++## Consequences
++
++Source and model requests remain unchanged. Resolution results are local display state, not a cache shared across Sessions. Boot settles plugins before mounting views; a provider installed afterward decorates on the next resolution or remount. Removal is observed by each open or resolve callback, while already drawn controls report provider absence through the retry dialog. Resolving arbitrary text can issue many independent metadata requests; batching and metadata caching belong to the provider.
++
++Focused primitive and Chat tests cover asynchronous appearance, UTF-16 offsets, stale completion, rejection, safe hyperlinks, reference chips, retry routing, disposal, and the directory waterfall. Built browser composition and plugin metadata interpretation require the external plugin's integration evidence.
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.zh.md b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.zh.md
+new file mode 100644
+index 0000000000..2dfd28151a
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.zh.md
+@@ -0,0 +1,31 @@
++# Agent Note: Chat 异步文本链接显示
++
++Status: implemented
++
++[English](2026-09-05-chat-async-text-links.md) | 中文
++
++## 问题
++
++资源识别可能需要异步元数据，而 Chat 的收尾文件提及回调是同步的，且仅限于已完成 Turn 的产出文件。资源插件需要在不替换 Chat、不扫描 DOM、不重写 Session 日志的情况下装饰现有文本。
++
++## 决策
++
++Chat 通过 `apply` 创建的稳定回调消费唯一可选的 `chatTextLinks` 提供方。提供方负责识别与路由。原语只负责有序 UTF-16 区间、行内按钮和组件私有的异步完成状态。文本或回调变化，以及卸载，都会使待完成结果失效。发现被拒绝时保留普通投影；打开被拒绝时，原始目标和操作种类进入 Chat 既有的重试渠道。
++
++已完成的 Markdown 以 text 模式解析正文，以精确 target 模式解析行内代码或不在允许列表中的创作目标。安全外部 URL 保留超链接。链接子节点保持不可交互，围栏代码与推理不参与发现。流式输出保留增量解析器和缓存块；新链接在完成后出现。用户文本在未覆盖片段及匹配的引用 token 内保留引用芯片投影。
++
++[收尾文件提及提供方](../feature/2026-08-07-web-inline-file-mentions.zh.md)保留其产出文件策略，并提供行内代码回退。[workspace 文件 waterfall](2026-09-05-chat-workspace-file-open-waterfall.zh.md)负责包括 `.` 在内的现有文件操作；不存在仅原生打开目录的绕过路径。本记录补充这两个所属方，不替换它们的策略或 middleware 理由。
++
++## 考虑过的替代方案
++
++**在 Chat 或原语中解析资源路径。** 否决，因为资源存在性、元数据和路由属于外部插件，必须随插件移除。
++
++**扫描并修改已渲染 DOM。** 否决，因为 React 与外部扫描器会同时拥有交互元素，且流式更新可能使注入的 handler 失效。
++
++**全量解析每次增长的回复。** 否决，因为这会放弃增量渲染器受限的尾部工作量。完成是发现时点。
++
++## 后果
++
++原文和模型请求保持不变。解析结果是局部显示状态，不是跨 Session 共享缓存。启动在挂载视图前等待插件稳定；之后安装的提供方在下一次解析或重新挂载时装饰。每次打开或解析回调都会观察到移除，已经绘制的控件通过重试对话框报告提供方缺失。任意文本解析可能产生多个独立元数据请求；批处理和元数据缓存由提供方负责。
++
++聚焦的原语和 Chat 测试覆盖异步出现、UTF-16 偏移、过时完成、拒绝、安全超链接、引用芯片、重试路由、卸载及目录 waterfall。构建后浏览器组合与插件元数据解释需要外部插件的集成证据。
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
+index fff3d3a800..4a4b07e1f0 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
+-2026-09-05-chat-workspace-file-open-waterfall.md: 51a2184153e6d67a1e3c0f3782e5facd6139296d
+-2026-09-05-chat-workspace-file-open-waterfall.zh.md: 3b385ffd95fa6ca6492cd1481f60d09fbd351ea0
++2026-09-05-chat-workspace-file-open-waterfall.md: f4a44a4be5f4a671345d609a5cd09ff168305916
++2026-09-05-chat-workspace-file-open-waterfall.zh.md: fee57f5e7a9a9bc56b1981ada92cbfc43abb8d9d
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
+index 51a2184153..f4a44a4be5 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
+@@ -12,7 +12,7 @@ Chat exposes one `ChatViewInjected.openFile` callback to tool rows, produced-fil
+ 
+ `ChatViewInjected.openFile` dispatches the typed `chat/open-workspace-file` waterfall for file paths. Its request carries the addressed `SessionId` and the workspace path. A listener handles the request by returning without `next()` and delegates by returning `next()`; one request therefore reaches either the handling listener or the terminal native action, never both.
+ 
+-The terminal action preserves the native behavior: it resolves the path with `resolveWorkspacePath(cwd, path)`, calls `session/openWorkspacePath`, and rejects on a Remote refusal. Listener throws and rejections also propagate unchanged to Chat's busy, retry, and stale-settlement handling. The Produced Files **Show in folder** action passes `.` directly to the terminal native action, so directory opening is outside the file waterfall.
++The terminal action preserves the native behavior: it resolves the path with `resolveWorkspacePath(cwd, path)`, calls `session/openWorkspacePath`, and rejects on a Remote refusal. Listener throws and rejections also propagate unchanged to Chat's busy, retry, and stale-settlement handling. The Produced Files **Show in folder** action passes `.` through the same waterfall ([resource display decision](2026-09-05-chat-async-text-links.md)).
+ 
+ The event belongs to ui-chat and names no viewer implementation. An external Client plugin can depend on the exported request type and register an ordinary Cordis listener; ui-chat has no dependency on that plugin.
+ 
+@@ -26,4 +26,4 @@ The event belongs to ui-chat and names no viewer implementation. An external Cli
+ 
+ ## Consequences
+ 
+-Client plugins can replace file opening per request or delegate to the native Host behavior. Focused ui-chat tests pin native fallback, handled short-circuiting, explicit delegation, request identity, error propagation, and the unchanged workspace-folder path. The tool-row file-open decision remains the owner of link presentation and Host opener policy ([tool-call file open](../feature/2026-07-28-tool-call-file-open-in-os.md)).
++Client plugins can replace file opening per request or delegate to the native Host behavior. Focused ui-chat tests pin native fallback, handled short-circuiting, explicit delegation, request identity, error propagation, and the workspace-folder waterfall. The tool-row file-open decision remains the owner of link presentation and Host opener policy ([tool-call file open](../feature/2026-07-28-tool-call-file-open-in-os.md)).
+diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
+index 3b385ffd95..fee57f5e7a 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
++++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
+@@ -12,7 +12,7 @@ Chat 通过唯一的 `ChatViewInjected.openFile` 回调服务于工具行、产
+ 
+ `ChatViewInjected.openFile` 对文件路径分发 typed `chat/open-workspace-file` waterfall。请求携带目标 `SessionId` 和 workspace 路径。listener 不调用 `next()` 而直接返回时处理请求，返回 `next()` 时委托请求；因此一个请求只会到达处理它的 listener 或末端原生操作，不会同时到达两者。
+ 
+-末端操作精确保留原生行为：它通过 `resolveWorkspacePath(cwd, path)` 解析路径、调用 `session/openWorkspacePath`，并在 Remote 拒绝时 reject。listener 抛错或 reject 也原样传播到 Chat 的 busy、重试和陈旧结果处理。Produced Files 的**在文件夹中显示**操作会把 `.` 直接交给末端原生操作，因此目录打开不进入文件 waterfall。
++末端操作精确保留原生行为：它通过 `resolveWorkspacePath(cwd, path)` 解析路径、调用 `session/openWorkspacePath`，并在 Remote 拒绝时 reject。listener 抛错或 reject 也原样传播到 Chat 的 busy、重试和陈旧结果处理。Produced Files 的**在文件夹中显示**操作通过相同的 waterfall 传递 `.`（[资源显示决策](2026-09-05-chat-async-text-links.zh.md)）。
+ 
+ 该事件由 ui-chat 持有，其名称不指向任何 viewer 实现。外部 Client 插件可以依赖导出的请求类型并注册普通 Cordis listener；ui-chat 不依赖该插件。
+ 
+@@ -26,4 +26,4 @@ Chat 通过唯一的 `ChatViewInjected.openFile` 回调服务于工具行、产
+ 
+ ## 后果
+ 
+-Client 插件可以逐请求替换文件打开行为，或委托给原生 Host 行为。ui-chat 聚焦测试固定原生回退、已处理请求的短路、显式委托、请求身份、错误传播和不变的 workspace 文件夹路径。工具行文件打开决策继续持有链接呈现和 Host 打开器策略（[工具调用文件打开](../feature/2026-07-28-tool-call-file-open-in-os.zh.md)）。
++Client 插件可以逐请求替换文件打开行为，或委托给原生 Host 行为。ui-chat 聚焦测试固定原生回退、已处理请求的短路、显式委托、请求身份、错误传播和 workspace 文件夹 waterfall。工具行文件打开决策继续持有链接呈现和 Host 打开器策略（[工具调用文件打开](../feature/2026-07-28-tool-call-file-open-in-os.zh.md)）。
+diff --git a/packages/client/ui-chat/README.i18n.yaml b/packages/client/ui-chat/README.i18n.yaml
+index 07ba49fd2d..884619ec64 100644
+--- a/packages/client/ui-chat/README.i18n.yaml
++++ b/packages/client/ui-chat/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/client/ui-chat/README.md
+-README.md: 83062edd3fa13a0a41c2bbbbf0260427a8d763d4
+-README.zh.md: 8bce7a1613031964bc07f253343d1dc582e4e6d0
++README.md: 2460094f6a90c7598083bb7956f5926be7625899
++README.zh.md: 3b92bf098f1b38444ace40920bcfa70b1ca19a89
+diff --git a/packages/client/ui-chat/README.md b/packages/client/ui-chat/README.md
+index 83062edd3f..2460094f6a 100644
+--- a/packages/client/ui-chat/README.md
++++ b/packages/client/ui-chat/README.md
+@@ -32,7 +32,9 @@ Chat shows a collapsed `System prompt` row for each non-empty initial or resumed
+ <a id="file-opening"></a>
+ ## File opening
+ 
+-Chat sends file links through the typed `chat/open-workspace-file` waterfall with the addressed Session id and workspace path. A Client plugin handles the request by returning without `next()` or delegates to the native opener with `next()`; the terminal action resolves the path against the Session cwd and calls `session/openWorkspacePath`. Handler failures reach Chat's existing retry dialog. The Show in folder action keeps its direct native `.` request and does not enter the file waterfall ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md)).
++Chat sends file links, including the workspace `.` action, through the typed `chat/open-workspace-file` waterfall with the addressed Session id and workspace path. A Client plugin handles the request by returning without `next()` or delegates to the native opener with `next()`; the terminal action resolves the path against the Session cwd and calls `session/openWorkspacePath`. Handler failures reach Chat's existing retry dialog ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md)).
++
++An optional `ctx.chatTextLinks` provider decorates settled Assistant prose, inline code, authored Markdown destinations, and user/steering/submission bubbles through plain callbacks. The provider owns resource recognition and opening; Chat preserves logged text, safe external hyperlinks, and existing reference chips. Discovery failures leave ordinary presentation intact. Open failures retain their opaque target in the resource retry dialog. Callbacks read the current provider on each call, so removal cannot invoke a retained provider; newly installed providers take effect on the next text resolution or view mount ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md)).
+ 
+ -----
+ 
+diff --git a/packages/client/ui-chat/README.zh.md b/packages/client/ui-chat/README.zh.md
+index 8bce7a1613..3b92bf098f 100644
+--- a/packages/client/ui-chat/README.zh.md
++++ b/packages/client/ui-chat/README.zh.md
+@@ -32,7 +32,9 @@ Chat 会为每个非空的初始或恢复请求、显式消息序列起点或真
+ <a id="file-opening"></a>
+ ## 文件打开
+ 
+-Chat 通过 typed `chat/open-workspace-file` waterfall（瀑布式事件）发送文件链接，并携带目标 Session id 与 workspace 路径。Client 插件可以不调用 `next()` 而直接返回以处理请求，也可以调用 `next()` 委托给原生打开器；末端操作会基于 Session cwd 解析路径并调用 `session/openWorkspacePath`。handler 失败会进入 Chat 既有的重试对话框。「在文件夹中显示」操作继续直接发送原生 `.` 请求，不进入文件 waterfall（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md)）。
++Chat 通过 typed `chat/open-workspace-file` waterfall（瀑布式事件）发送文件链接（包括 workspace `.` 操作），并携带目标 Session id 与 workspace 路径。Client 插件可以不调用 `next()` 而直接返回以处理请求，也可以调用 `next()` 委托给原生打开器；末端操作会基于 Session cwd 解析路径并调用 `session/openWorkspacePath`。handler 失败会进入 Chat 既有的重试对话框（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md)）。
++
++可选的 `ctx.chatTextLinks` 提供方通过普通回调装饰已完成的 Assistant 正文、行内代码、Markdown 目标及用户、steering、提交回显气泡。提供方负责资源识别与打开；Chat 保留日志原文、安全外部超链接和现有引用芯片。发现失败时保留普通呈现。打开失败时，资源重试对话框保留不透明目标。回调每次调用都读取当前提供方，因此移除后不会调用保留的提供方；新安装的提供方在下一次文本解析或视图挂载时生效（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.zh.md)）。
+ 
+ -----
+ 
+diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
+index b0dbea3f92..5137fde61c 100644
+--- a/packages/client/ui-chat/src/client/apply.ts
++++ b/packages/client/ui-chat/src/client/apply.ts
+@@ -124,13 +124,17 @@ export function apply(ctx: Context): void {
+             ctx.layout.openDetails()
+           },
+           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
+-          openFile: path => path === '.'
+-            ? openNativeWorkspacePath(sessionId, path)
+-            : ctx.waterfall(
+-              'chat/open-workspace-file',
+-              { sessionId, path },
+-              () => openNativeWorkspacePath(sessionId, path),
+-            ),
++          resolveTextLinks: async (text, mode) => ctx.get('chatTextLinks')?.resolve(sessionId, text, mode) ?? [],
++          openTextLink: async (target) => {
++            const provider = ctx.get('chatTextLinks')
++            if (provider === undefined) throw new Error(t('resourceOpen.unavailable'))
++            await provider.open(sessionId, target)
++          },
++          openFile: path => ctx.waterfall(
++            'chat/open-workspace-file',
++            { sessionId, path },
++            () => openNativeWorkspacePath(sessionId, path),
++          ),
+           loadOlder: () => { void session.loadOlder() },
+           loadImage: Object.assign(
+             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
+diff --git a/packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx b/packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx
+index c517f9d0c2..242f975c62 100644
+--- a/packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx
++++ b/packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx
+@@ -10,6 +10,7 @@ import { useSearchableHidden } from './searchable-hidden.ts'
+ import css from './AssistantMarkdown.module.css'
+ 
+ export interface AssistantMarkdownProps {
++  textLinks?: ChatNodeOwnerProps['textLinks']
+   blocks: readonly AssistantBlock[]
+   streaming: boolean
+   /** Frozen partial of an aborted turn: rendered with a stopped marker. */
+@@ -29,7 +30,7 @@ export interface AssistantMarkdownProps {
+ /** Reasoning block as the Think variant summary row (figma 39:28304). */
+ export const AssistantMarkdown = memo(function AssistantMarkdown({
+   blocks, streaming, interrupted, renderMessageImages,
+-  reasoningHidden = false, revealProcess, mentions, t,
++  reasoningHidden = false, revealProcess, mentions, textLinks, t,
+ }: AssistantMarkdownProps) {
+   // Stable per locale revision (t identity changes on switch): a fresh object
+   // per render would rebuild MarkdownText's component table every chunk.
+@@ -55,6 +56,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
+             streaming={streaming}
+             labels={labels}
+             fileMentions={mentions}
++            textLinks={textLinks}
+           />,
+         )
+         break
+diff --git a/packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx b/packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx
+index 399897a9b5..cda6a7a701 100644
+--- a/packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx
++++ b/packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx
+@@ -4,7 +4,7 @@ import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+ 
+ /** Streaming, settled, and interrupted Assistant states share one keyed renderer instance. */
+ export const AssistantNodeView = memo(function AssistantNodeView({
+-  node, useTurnData, turnProcess, openFile, renderMessageImages, fileMentions, t,
++  node, useTurnData, turnProcess, openFile, renderMessageImages, fileMentions, textLinks, t,
+ }: ChatNodeViewProps<'assistant-step'>) {
+   const data = node.data
+   const turn = node.location.kind === 'turn' || node.location.kind === 'step'
+@@ -35,6 +35,7 @@ export const AssistantNodeView = memo(function AssistantNodeView({
+       reasoningHidden={reasoningHidden}
+       revealProcess={revealProcess}
+       mentions={mentions}
++      textLinks={textLinks}
+       t={t}
+     />
+   )
+diff --git a/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx b/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
+index 00eb9fd70d..07f8aa274c 100644
+--- a/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
++++ b/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
+@@ -80,7 +80,7 @@ function turnProcessLayout(
+ export const ChatNodeSeat = memo(function ChatNodeSeat({
+   nodeKey, historyIncomplete, compactTranscript,
+   selectedCallId, cwd, openFile, inspectCall, forkAt,
+-  renderMessageImages, fileMentions, useChat, useStore, actions, renderSlot, t,
++  renderMessageImages, fileMentions, textLinks, useChat, useStore, actions, renderSlot, t,
+ }: ChatNodeSeatProps) {
+   const node = useChat(snapshot => snapshot.nodes.get(nodeKey))
+   const processSignature = useChat((snapshot) => {
+@@ -183,10 +183,11 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
+       forkAt,
+       renderMessageImages,
+       fileMentions,
++      textLinks,
+       turnProcess,
+     }, [
+     node, selectedCallId, cwd, openFile, inspectCall, forkAt,
+-    renderMessageImages, fileMentions, turnProcess,
++    renderMessageImages, fileMentions, textLinks, turnProcess,
+   ])
+   if (routedNode === undefined || owner === null) return null
+   const location = routedNode.location
+diff --git a/packages/client/ui-chat/src/client/chat/ChatView.tsx b/packages/client/ui-chat/src/client/chat/ChatView.tsx
+index b5f0313f15..1c4a19dd97 100644
+--- a/packages/client/ui-chat/src/client/chat/ChatView.tsx
++++ b/packages/client/ui-chat/src/client/chat/ChatView.tsx
+@@ -103,6 +103,8 @@ function pagingAnchor(list: HTMLElement, scrollport: HTMLElement): HTMLElement |
+ 
+ type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']['read']>>
+ 
++type OpenRequest = { kind: 'file' | 'resource'; target: string }
++
+ /** Capture a reflow-resistant reader position from the current rendered window. */
+ function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollPosition | null {
+   const row = pagingAnchor(list, scrollport)
+@@ -203,7 +205,7 @@ function TurnStatus({ startTime, t }: {
+  */
+ export function ChatView({
+   useSession, useChat, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadImage, openView, chatScroll, forkAt,
+-  fileMentions, useTranscriptView, t,
++  fileMentions, resolveTextLinks, openTextLink, useTranscriptView, t,
+ }: ChatViewSlotProps) {
+   const order = useChat(s => s.order)
+   const nodeStore = useChat(s => s.nodes)
+@@ -225,16 +227,20 @@ export function ChatView({
+   const inspectCall = useCallback((callId: string) => {
+     openView('trajectory', callId)
+   }, [openView])
+-  const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
++  const [fileOpenError, setFileOpenError] = useState<{ request: OpenRequest; message: string } | null>(null)
+   const [fileOpenBusy, setFileOpenBusy] = useState(false)
+   // Close/retry must ignore a settlement that started before the latest
+   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
+   const fileOpenRequest = useRef(0)
+ 
+-  const requestOpenFile = useCallback((path: string) => {
++  const requestOpen = useCallback((request: OpenRequest) => {
+     const id = ++fileOpenRequest.current
+     setFileOpenBusy(true)
+-    void openFile(path).then(
++    const run = async (): Promise<void> => {
++      if (request.kind === 'file') await openFile(request.target)
++      else await openTextLink(request.target)
++    }
++    void run().then(
+       () => {
+         if (id !== fileOpenRequest.current) return
+         setFileOpenError(null)
+@@ -243,16 +249,26 @@ export function ChatView({
+       (error: unknown) => {
+         if (id !== fileOpenRequest.current) return
+         setFileOpenError({
+-          path,
++          request,
+           message: openFailureMessage(
+             error,
+-            t(isFolderOpenPath(path) ? 'fileOpen.folderUnknown' : 'fileOpen.unknown'),
++            t(request.kind === 'resource' ? 'resourceOpen.unknown'
++              : isFolderOpenPath(request.target) ? 'fileOpen.folderUnknown' : 'fileOpen.unknown'),
+           ),
+         })
+         setFileOpenBusy(false)
+       },
+     )
+-  }, [openFile, t])
++  }, [openFile, openTextLink, t])
++  const requestOpenFile = useCallback((path: string) => {
++    requestOpen({ kind: 'file', target: path })
++  }, [requestOpen])
++  const requestOpenTextLink = useCallback((target: string) => {
++    requestOpen({ kind: 'resource', target })
++  }, [requestOpen])
++  const textLinks = useMemo(() => ({ resolve: resolveTextLinks, open: requestOpenTextLink }),
++    [resolveTextLinks, requestOpenTextLink])
++  useEffect(() => () => { fileOpenRequest.current += 1 }, [])
+ 
+   const closeFileOpenError = useCallback(() => {
+     fileOpenRequest.current += 1
+@@ -608,6 +624,7 @@ export function ChatView({
+               forkAt={forkAt}
+               renderMessageImages={renderMessageImages}
+               fileMentions={fileMentions}
++              textLinks={textLinks}
+               renderSlot={renderSlot}
+               t={t}
+             />
+@@ -622,6 +639,7 @@ export function ChatView({
+             <PendingSteeringBubble
+               key={item.id}
+               content={item.content}
++              textLinks={textLinks}
+               renderMessageImages={renderMessageImages}
+               t={t}
+             />
+@@ -630,6 +648,7 @@ export function ChatView({
+             <PendingSubmissionBubble
+               key={submission.requestId}
+               submission={submission}
++              textLinks={textLinks}
+               renderMessageImages={renderMessageImages}
+               t={t}
+             />
+@@ -654,11 +673,11 @@ export function ChatView({
+       </div>
+       {fileOpenError !== null && (
+         <FileOpenErrorDialog
+-          path={fileOpenError.path}
++          request={fileOpenError.request}
+           message={fileOpenError.message}
+           busy={fileOpenBusy}
+           onClose={closeFileOpenError}
+-          onRetry={() => { requestOpenFile(fileOpenError.path) }}
++          onRetry={() => { requestOpen(fileOpenError.request) }}
+           t={t}
+         />
+       )}
+@@ -666,11 +685,11 @@ export function ChatView({
+   )
+ }
+ 
+-/** In-page Host open-path refusal: the wire reason plus a retry of the same path. */
++/** In-page open failure with a retry of the same file path or resource target. */
+ function FileOpenErrorDialog({
+-  path, message, busy, onClose, onRetry, t,
++  request, message, busy, onClose, onRetry, t,
+ }: {
+-  path: string
++  request: OpenRequest
+   message: string
+   busy: boolean
+   onClose: () => void
+@@ -682,7 +701,8 @@ function FileOpenErrorDialog({
+       open
+       onClose={onClose}
+       closeLabel={t('close')}
+-      title={t(isFolderOpenPath(path) ? 'fileOpen.folderTitle' : 'fileOpen.title')}
++      title={t(request.kind === 'resource' ? 'resourceOpen.title'
++        : isFolderOpenPath(request.target) ? 'fileOpen.folderTitle' : 'fileOpen.title')}
+       description={message}
+       footer={(
+         <>
+diff --git a/packages/client/ui-chat/src/client/chat/MessageItem.tsx b/packages/client/ui-chat/src/client/chat/MessageItem.tsx
+index cb8084fe41..982fabfbf9 100644
+--- a/packages/client/ui-chat/src/client/chat/MessageItem.tsx
++++ b/packages/client/ui-chat/src/client/chat/MessageItem.tsx
+@@ -148,9 +148,10 @@ function TurnMaxTokensItem({ t }: {
+ 
+ /** Right-aligned bubble shared by user and steering rows. */
+ function UserStyleBubble({
+-  content, renderMessageImages, actions, pending = false, echo = false, referenceLabels = [], previewImages, reveal = 'always', t,
++  content, renderMessageImages, textLinks, actions, pending = false, echo = false, referenceLabels = [], previewImages, reveal = 'always', t,
+ }: {
+   content: readonly unknown[]
++  textLinks?: ChatNodeOwnerProps['textLinks']
+   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
+   actions?: (text: string) => ReactNode
+@@ -180,7 +181,7 @@ function UserStyleBubble({
+       <div className={css.userStack}>
+         {renderMessageImages({ images, align: 'end' })}
+         {showBubble && <div className={css.bubble}>
+-          {projectUserText(text, referenceLabels)}
++          {projectUserText(text, referenceLabels, textLinks)}
+           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+         </div>}
+         {referenceLabels.length > 0 && (
+@@ -200,8 +201,9 @@ function UserStyleBubble({
+  * @param props - Pending message content and conversation translator.
+  * @returns the pending steering bubble.
+  */
+-export function PendingSteeringBubble({ content, renderMessageImages, t }: {
++export function PendingSteeringBubble({ content, renderMessageImages, textLinks, t }: {
+   content: readonly unknown[]
++  textLinks?: ChatNodeOwnerProps['textLinks']
+   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+   t: ChatViewSlotProps['t']
+ }): ReactNode {
+@@ -210,6 +212,7 @@ export function PendingSteeringBubble({ content, renderMessageImages, t }: {
+       content={content}
+       renderMessageImages={renderMessageImages}
+       pending
++      textLinks={textLinks}
+       t={t}
+       actions={text => (
+         <MessageIconActions
+@@ -231,8 +234,9 @@ export function PendingSteeringBubble({ content, renderMessageImages, t }: {
+  * @param props - the session snapshot's pending submission and render seats.
+  * @returns the echoed user bubble.
+  */
+-export function PendingSubmissionBubble({ submission, renderMessageImages, t }: {
++export function PendingSubmissionBubble({ submission, renderMessageImages, textLinks, t }: {
+   submission: PendingSubmission
++  textLinks?: ChatNodeOwnerProps['textLinks']
+   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+   t: ChatViewSlotProps['t']
+ }): ReactNode {
+@@ -257,6 +261,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }:
+       previewImages={previewImages}
+       renderMessageImages={renderMessageImages}
+       echo
++      textLinks={textLinks}
+       t={t}
+       actions={text => (
+         <MessageIconActions
+@@ -273,7 +278,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }:
+ 
+ /** User and admitted-steering keyed Chat renderer. */
+ export const UserMessageNodeView = memo(function UserMessageNodeView({
+-  node, renderMessageImages, useChat, t,
++  node, renderMessageImages, textLinks, useChat, t,
+ }: ChatNodeViewProps<'user' | 'steering'>) {
+   const data = node.data
+   // The transcript's last user-authored row keeps its actions row shown, the
+@@ -288,6 +293,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
+   return (
+     <UserStyleBubble
+       content={data.content}
++      textLinks={textLinks}
+       renderMessageImages={renderMessageImages}
+       {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+       reveal={isLatestUserRow ? 'always' : 'hover'}
+diff --git a/packages/client/ui-chat/src/client/contract/slots.ts b/packages/client/ui-chat/src/client/contract/slots.ts
+index 2031818385..065194c0b7 100644
+--- a/packages/client/ui-chat/src/client/contract/slots.ts
++++ b/packages/client/ui-chat/src/client/contract/slots.ts
+@@ -9,7 +9,7 @@ import type {
+   SnapshotSelectorHook,
+ } from '@deepseek-ai/dsh-client-ui-slots'
+ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+-import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
++import type { MarkdownFileMentions, TextLink, TextLinks } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+ import type { createChatStore } from '../stores.ts'
+ import type { ToolCallId, SelectionTarget } from './store.ts'
+@@ -51,10 +51,30 @@ export interface ChatFileOpenRequest {
+   readonly path: string
+ }
+ 
++/** Optional Client provider for presentation-only Chat text links. */
++export interface ChatTextLinks {
++  /**
++   * Resolve ordered non-overlapping UTF-16 ranges without changing logged text.
++   * @param sessionId - Session displaying the text.
++   * @param text - Prose or exact authored token.
++   * @param mode - Target mode requires one full-text range, otherwise no match.
++   * @returns Display ranges; failure leaves ordinary text rendering available.
++   */
++  resolve(sessionId: SessionId, text: string, mode: 'text' | 'target'): Promise<readonly TextLink[]>
++  /**
++   * Open one resolved resource; rejection reaches Chat's retry dialog.
++   * @param sessionId - Session displaying the link.
++   * @param target - Opaque resolved target.
++   */
++  open(sessionId: SessionId, target: string): Promise<void>
++}
++
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     /** Optional prose file-mention provider. */
+     chatFileMentions: ChatFileMentions
++    /** Optional asynchronous text decoration provider. */
++    chatTextLinks: ChatTextLinks
+   }
+ 
+   interface Events {
+@@ -84,6 +104,7 @@ export interface ChatNodeTurnDataInjected {
+ 
+ /** Stable owner currency delivered to a keyed Chat renderer. */
+ export interface ChatNodeOwnerProps {
++  textLinks?: TextLinks | undefined
+   selectedCallId?: ToolCallId | undefined
+   cwd?: string | undefined
+   openFile: (path: string) => void
+@@ -134,6 +155,8 @@ export interface ChatScrollPosition {
+ 
+ /** Business callbacks injected into the Chat view. */
+ export interface ChatViewInjected {
++  resolveTextLinks: TextLinks['resolve']
++  openTextLink: (target: string) => Promise<void>
+   hooks: {
+     /** Persisted completed-Turn transcript presentation. */
+     transcriptView: SnapshotStore<TranscriptViewMode>
+diff --git a/packages/client/ui-chat/src/client/index.ts b/packages/client/ui-chat/src/client/index.ts
+index d4fe8cc6ad..2a33fd54ac 100644
+--- a/packages/client/ui-chat/src/client/index.ts
++++ b/packages/client/ui-chat/src/client/index.ts
+@@ -1,5 +1,7 @@
+ /** Browser Chat target plugin. */
+ export { apply, inject } from './apply.ts'
++export type { TextLink } from '@deepseek-ai/dsh-client-ui-primitives'
++export type { ChatTextLinks } from './contract/slots.ts'
+ export type {} from './conversation-nodes/assistant.ts'
+ export type {} from './conversation-nodes/command.ts'
+ export type {} from './conversation-nodes/compaction.ts'
+diff --git a/packages/client/ui-chat/src/client/locale.ts b/packages/client/ui-chat/src/client/locale.ts
+index cd0f6f50ce..17957fdb30 100644
+--- a/packages/client/ui-chat/src/client/locale.ts
++++ b/packages/client/ui-chat/src/client/locale.ts
+@@ -37,6 +37,9 @@ export const zh = {
+   'settings.transcript.normal': 'Normal',
+   'settings.transcript.compact': 'Compact',
+   'fileOpen.title': '无法打开文件',
++  'resourceOpen.title': '无法打开资源',
++  'resourceOpen.unknown': '无法打开此资源',
++  'resourceOpen.unavailable': '资源链接提供方不可用',
+   'fileOpen.unknown': '无法打开此文件',
+   'fileOpen.folderTitle': '无法打开文件夹',
+   'fileOpen.folderUnknown': '无法打开此文件夹',
+@@ -153,6 +156,9 @@ export const en = {
+   'settings.transcript.normal': 'Normal',
+   'settings.transcript.compact': 'Compact',
+   'fileOpen.title': 'Couldn’t open file',
++  'resourceOpen.title': 'Couldn’t open resource',
++  'resourceOpen.unknown': 'Couldn’t open this resource',
++  'resourceOpen.unavailable': 'Resource link provider is unavailable',
+   'fileOpen.unknown': 'Couldn’t open this file',
+   'fileOpen.folderTitle': 'Couldn’t open folder',
+   'fileOpen.folderUnknown': 'Couldn’t open this folder',
+diff --git a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
+index 2eb7cfa104..9520a59698 100644
+--- a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
++++ b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
+@@ -169,15 +169,15 @@ describe('Chat inject API', () => {
+     await b.runtime.dispose()
+   })
+ 
+-  it('keeps the workspace-folder action on the native opener', async () => {
++  it('lets a listener handle the workspace-folder action', async () => {
+     const b = await bench()
+     const listener = vi.fn()
+     b.runtime.ctx.on('chat/open-workspace-file', listener)
+ 
+     await b.chatViewApi(ROOT).injected.openFile('.')
+ 
+-    expect(listener).not.toHaveBeenCalled()
+-    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/.' })
++    expect(listener).toHaveBeenCalledWith({ sessionId: ROOT, path: '.' }, expect.any(Function))
++    expect(b.openWorkspacePath).not.toHaveBeenCalled()
+     await b.runtime.dispose()
+   })
+ 
+diff --git a/packages/client/ui-chat/tests/chat-apply.client.spec.tsx b/packages/client/ui-chat/tests/chat-apply.client.spec.tsx
+index d9c1538190..a353075f18 100644
+--- a/packages/client/ui-chat/tests/chat-apply.client.spec.tsx
++++ b/packages/client/ui-chat/tests/chat-apply.client.spec.tsx
+@@ -15,7 +15,7 @@ import {
+   apply as applyChat, EMPTY_CHAT_SNAPSHOT, inject as injectChat,
+ } from '@deepseek-ai/dsh-client-ui-chat/client'
+ import type {
+-  ChatNodeTurnDataInjected, ChatSnapshot, TranscriptViewRowInjected, UseChat,
++  ChatNodeTurnDataInjected, ChatSnapshot, ChatViewInjected, ChatTextLinks, TranscriptViewRowInjected, UseChat,
+ } from '@deepseek-ai/dsh-client-ui-chat/client'
+ import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
+ 
+@@ -69,6 +69,58 @@ function storeOf(runtime: SlotTestRuntime, key: 'conversation.session' | 'conver
+ }
+ 
+ describe('Chat apply wiring', () => {
++  it('reads the optional text-link provider for each call across disposal', async () => {
++    const b = await bench()
++    try {
++      await b.runtime.sessions.add({ id: SID }, { current: false })
++      const entry = b.runtime.slots.entries('conversation.view')[0]!
++      const face = (entry.inject as unknown as (id: SessionId) => ChatViewInjected)(SID)
++      expect(await face.resolveTextLinks('report.txt', 'text')).toEqual([])
++      const open = vi.fn<ChatTextLinks['open']>(async () => {})
++      const provider: ChatTextLinks = {
++        resolve: vi.fn<ChatTextLinks['resolve']>(async (_id, text) => [{ start: 0, end: text.length, target: 'opaque' }]),
++        open,
++      }
++      const fiber = await b.runtime.mount({ apply: (ctx) => { ctx.provide('chatTextLinks', provider) } })
++      expect(await face.resolveTextLinks('report.txt', 'target')).toEqual([{ start: 0, end: 10, target: 'opaque' }])
++      await face.openTextLink('opaque')
++      expect(open).toHaveBeenCalledWith(SID, 'opaque')
++      await fiber.dispose()
++      expect(await face.resolveTextLinks('report.txt', 'text')).toEqual([])
++      await expect(face.openTextLink('opaque')).rejects.toThrow('资源链接提供方不可用')
++    } finally { await b.runtime.dispose() }
++  })
++
++  it('routes files and the workspace dot through the waterfall before native fallback', async () => {
++    const b = await bench()
++    try {
++      await b.runtime.sessions.add({ id: SID }, { current: false })
++      const entry = b.runtime.slots.entries('conversation.view')[0]!
++      const face = (entry.inject as unknown as (id: SessionId) => ChatViewInjected)(SID)
++      const native = vi.spyOn(b.runtime.ctx.remote.session, 'openWorkspacePath')
++      const handled: string[] = []
++      const fiber = await b.runtime.mount({ apply: (ctx) => {
++        ctx.on('chat/open-workspace-file', async (request, next) => {
++          handled.push(request.path)
++          expect(request.sessionId).toBe(SID)
++          if (request.path === 'delegate') return next()
++          if (request.path === 'reject') throw new Error('viewer refused')
++        })
++      } })
++      await face.openFile('.')
++      await face.openFile('report.txt')
++      expect(handled).toEqual(['.', 'report.txt'])
++      expect(native).not.toHaveBeenCalled()
++      await expect(face.openFile('reject')).rejects.toThrow('viewer refused')
++      expect(native).not.toHaveBeenCalled()
++      await face.openFile('delegate')
++      expect(native).toHaveBeenCalledOnce()
++      await fiber.dispose()
++      await face.openFile('.')
++      expect(native).toHaveBeenCalledTimes(2)
++    } finally { await b.runtime.dispose() }
++  })
++
+   it('contributes Chat View, node renderers, stats, and details', async () => {
+     const b = await bench()
+     const views = b.runtime.slots.entries('conversation.view')
+diff --git a/packages/client/ui-chat/tests/chat-view.client.spec.tsx b/packages/client/ui-chat/tests/chat-view.client.spec.tsx
+index 2acc40853e..a2a8ae3150 100644
+--- a/packages/client/ui-chat/tests/chat-view.client.spec.tsx
++++ b/packages/client/ui-chat/tests/chat-view.client.spec.tsx
+@@ -367,6 +367,8 @@ function makeHarness(
+     completeViewRequest: () => {},
+     openDetails,
+     openFile,
++    resolveTextLinks: async () => [],
++    openTextLink: vi.fn(async () => {}),
+     loadOlder,
+     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
+     chatScroll,
+@@ -507,6 +509,25 @@ describe('Chat node rendering', () => {
+ })
+ 
+ describe('ChatView', () => {
++  it('opens asynchronous user session chips and retries the resource target', async () => {
++    const source = '@[Related](dsh-session:other)'
++    const h = makeHarness({ nodes: [user(1, source), assistant(2, 'answer')] })
++    h.props.resolveTextLinks = async text => text === source
++      ? [{ start: 0, end: text.length, target: 'session:other' }]
++      : []
++    const open = vi.fn<ChatViewSlotProps['openTextLink']>()
++      .mockRejectedValueOnce(new Error('session unavailable'))
++      .mockResolvedValueOnce(undefined)
++    h.props.openTextLink = open
++    render(<h.ChatView {...h.props} />)
++    fireEvent.click(await screen.findByRole('button', { name: 'Related' }))
++    expect((await screen.findByRole('dialog', { name: '无法打开资源' })).textContent).toContain('session unavailable')
++    fireEvent.click(screen.getByRole('button', { name: '重试' }))
++    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
++    expect(open.mock.calls).toEqual([['session:other'], ['session:other']])
++    expect(h.openFile).not.toHaveBeenCalled()
++  })
++
+   it('leaves the turn rail unrendered when an unrelated Chat update commits', () => {
+     const snapshot = chatSnapshotFixture({
+       nodes: [
+diff --git a/packages/client/ui-primitives/README.i18n.yaml b/packages/client/ui-primitives/README.i18n.yaml
+index d48604ea73..5ab8972aaf 100644
+--- a/packages/client/ui-primitives/README.i18n.yaml
++++ b/packages/client/ui-primitives/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/client/ui-primitives/README.md
+-README.md: 42c1110e8735dd2191c8b7a2e4dcc1f2b9b938bc
+-README.zh.md: 9f3c06cacebb7a596204dbe1c8e00a549ce1fcae
++README.md: 0109d87c85c25c24058e59cc91973ea9a697dd6a
++README.zh.md: f594c578466a26eef0f2602e9ea48250edcce494
+diff --git a/packages/client/ui-primitives/README.md b/packages/client/ui-primitives/README.md
+index 42c1110e87..0109d87c85 100644
+--- a/packages/client/ui-primitives/README.md
++++ b/packages/client/ui-primitives/README.md
+@@ -35,6 +35,8 @@ Compose feature UI from these atoms whenever the web client needs a standard con
+ 
+ `MarkdownText` renders untrusted GFM and TeX math, blocks unsafe links and images, and can turn resolved file mentions into explicit controls. While a reply streams, it freezes completed blocks and highlights a growing fence from saved Shiki grammar state; the final render uses the same span tree ([incremental renderer](../../../.agents/notes/implemented/architecture/2026-08-06-web-markdown-incremental-ast-renderer.md), [streaming fence highlighting](../../../.agents/notes/implemented/feature/2026-08-20-web-streaming-fence-highlight.md)). `TerminalBlock`, `ReadBlock`, `DiffBlock`, `SearchBlock`, and `WebBlock` render the matching tool-result intent with copy controls, overflow handling, and ANSI processing where applicable. `JsonTree` and `JsonBlock` inspect JSON values read-only, while `MessageText` remains the literal-text primitive for user-authored content.
+ 
++`MarkdownText.textLinks` and the optional third argument to `projectUserText` accept asynchronous display callbacks. Resolvers return ordered, non-overlapping UTF-16 ranges; exact-token mode requires one complete range. Markdown discovers links only after streaming settles, and never inside an existing link or fenced code. External hyperlinks keep their protocol policy. Rejected or obsolete discovery leaves ordinary text and reference-chip projection available; successful ranges render buttons that pass opaque targets to the owner. No resource parsing or persistence belongs to these primitives.
++
+ ### Localizing copy
+ 
+ The atoms cannot read the application locale, so every piece of user-facing copy arrives through required label props. `HoverCard`, `TerminalBlock`, `JsonTree`, `CodeBlock`, `MarkdownText`, `JsonBlock`, `ConnectionIndicator`, `Modal`, `DiffBlock`, `ReadBlock`, `SearchBlock`, and `WebBlock` accept complete localized labels. The package owns no language fallback; omission fails typechecking, and each feature maps its typed `t` seat into the primitive's label interface.
+diff --git a/packages/client/ui-primitives/README.zh.md b/packages/client/ui-primitives/README.zh.md
+index 9f3c06cace..f594c57846 100644
+--- a/packages/client/ui-primitives/README.zh.md
++++ b/packages/client/ui-primitives/README.zh.md
+@@ -35,6 +35,8 @@ kind: "package-library"
+ 
+ `MarkdownText` 渲染不可信的 GFM 与 TeX 公式、阻止不安全的链接与图片，并可把已解析的文件提及转换为显式控件。回复流式输出时，它冻结已完成的块，并从保存的 Shiki grammar state 为不断增长的 fence 增量高亮；最终渲染使用相同的 span 树（[增量渲染器](../../../.agents/notes/implemented/architecture/2026-08-06-web-markdown-incremental-ast-renderer.zh.md)、[流式 fence 高亮](../../../.agents/notes/implemented/feature/2026-08-20-web-streaming-fence-highlight.zh.md)）。`TerminalBlock`、`ReadBlock`、`DiffBlock`、`SearchBlock` 与 `WebBlock` 把对应的工具结果意图渲染为带复制控件、溢出处理及适用时 ANSI 处理的卡片。`JsonTree` 与 `JsonBlock` 以只读方式检查 JSON 值；`MessageText` 仍是用户创作内容的字面文本原语。
+ 
++`MarkdownText.textLinks` 与 `projectUserText` 的可选第三个参数接受异步显示回调。解析器返回有序、不重叠的 UTF-16 区间；精确 token 模式要求一个覆盖完整输入的区间。Markdown 仅在流式输出结束后发现链接，且不会扫描现有链接内部或围栏代码。外部超链接保留其协议策略。发现被拒绝或结果过时时仍可使用普通文本与引用芯片投影；成功区间渲染为按钮，将不透明目标传给所属方。这些原语不负责资源解析或持久化。
++
+ ### 本地化文案
+ 
+ 这些原子组件无法读取应用 locale，因此每段面向用户的文案都必须通过 label prop 提供。`HoverCard`、`TerminalBlock`、`JsonTree`、`CodeBlock`、`MarkdownText`、`JsonBlock`、`ConnectionIndicator`、`Modal`、`DiffBlock`、`ReadBlock`、`SearchBlock` 与 `WebBlock` 接收完整的本地化 label。本包不拥有语言回退；遗漏会导致类型检查失败，各功能会把带类型的 `t` 席位映射到 primitive 的 label 接口。
+diff --git a/packages/client/ui-primitives/src/LinkedText.tsx b/packages/client/ui-primitives/src/LinkedText.tsx
+new file mode 100644
+index 0000000000..e0f8bb0e07
+--- /dev/null
++++ b/packages/client/ui-primitives/src/LinkedText.tsx
+@@ -0,0 +1,66 @@
++/** Component-private asynchronous decorations; obsolete completions cannot change rendered text. */
++import { Fragment, useEffect, useState } from 'react'
++import type { ReactNode } from 'react'
++import type { TextLink, TextLinks } from './text-links.ts'
++import css from './markdown/MarkdownText.module.css'
++
++interface Resolution {
++  text: string
++  mode: 'text' | 'target'
++  resolve: TextLinks['resolve']
++  links: readonly TextLink[]
++}
++
++/**
++ * Render resolved ranges with optional owner-local fallback projection.
++ * @param props - Text, stable callbacks, and owner-local fallback content.
++ * @returns Inline buttons and unchanged uncovered text.
++ */
++export function LinkedText({ text, mode = 'text', links, children, fallback, plain = identity }: {
++  text: string
++  mode?: 'text' | 'target'
++  links: TextLinks
++  children?: ReactNode
++  fallback?: ReactNode
++  plain?: (text: string) => ReactNode
++}): ReactNode {
++  const { resolve, open } = links
++  const [result, setResult] = useState<Resolution>()
++  useEffect(() => {
++    let active = true
++    void Promise.resolve().then(() => resolve(text, mode)).then(
++      (resolved) => { if (active) setResult({ text, mode, resolve, links: resolved }) },
++      () => {
++        // Optional decoration failure preserves the source and its ordinary projection.
++        if (active) setResult({ text, mode, resolve, links: [] })
++      },
++    )
++    return () => { active = false }
++  }, [text, mode, resolve])
++  const ranges = result?.text === text && result.mode === mode && result.resolve === resolve
++    ? result.links
++    : []
++  const button = (link: TextLink, content: ReactNode): ReactNode => (
++    <button key={link.start} type="button" className={css.fileMention} title={link.title}
++      onClick={() => { open(link.target) }}>
++      {content}
++    </button>
++  )
++  if (mode === 'target') {
++    const link = ranges.length === 1 ? ranges[0] : undefined
++    return link?.start === 0 && link.end === text.length
++      ? button(link, children ?? link.label ?? plain(text))
++      : fallback ?? children ?? plain(text)
++  }
++  const parts: ReactNode[] = []
++  let cursor = 0
++  for (const link of ranges) {
++    if (cursor < link.start) parts.push(<Fragment key={`plain-${cursor}`}>{plain(text.slice(cursor, link.start))}</Fragment>)
++    parts.push(button(link, link.label ?? plain(text.slice(link.start, link.end))))
++    cursor = link.end
++  }
++  if (cursor < text.length) parts.push(<Fragment key={`plain-${cursor}`}>{plain(text.slice(cursor))}</Fragment>)
++  return <>{parts}</>
++}
++
++function identity(text: string): string { return text }
+diff --git a/packages/client/ui-primitives/src/index.ts b/packages/client/ui-primitives/src/index.ts
+index c5f88e5eee..d5bf663f5d 100644
+--- a/packages/client/ui-primitives/src/index.ts
++++ b/packages/client/ui-primitives/src/index.ts
+@@ -29,6 +29,7 @@ export type { BrandWordmarkProps } from './BrandWordmark.tsx'
+ export { ReferenceIcon } from './ReferenceIcon.tsx'
+ export type { ReferenceIconKind, ReferenceIconProps } from './ReferenceIcon.tsx'
+ export { projectUserText } from './user-text.tsx'
++export type { TextLink, TextLinks } from './text-links.ts'
+ export { Tooltip } from './Tooltip.tsx'
+ export type { TooltipSide } from './Tooltip.tsx'
+ export { Toast } from './Toast.tsx'
+diff --git a/packages/client/ui-primitives/src/markdown/MarkdownText.tsx b/packages/client/ui-primitives/src/markdown/MarkdownText.tsx
+index 3a26bac424..2f470e2d9a 100644
+--- a/packages/client/ui-primitives/src/markdown/MarkdownText.tsx
++++ b/packages/client/ui-primitives/src/markdown/MarkdownText.tsx
+@@ -13,6 +13,7 @@
+ 
+ import { memo, useMemo, useRef } from 'react'
+ import type { ReactNode } from 'react'
++import type { TextLinks } from '../text-links.ts'
+ import { IncrementalMarkdownParser } from './incremental.ts'
+ import { parseGfm, parseGfmWithMath } from './parse.ts'
+ import {
+@@ -30,6 +31,7 @@ function renderSettled(
+   text: string,
+   labels: MarkdownLabels,
+   fileMentions: MarkdownFileMentions | undefined,
++  textLinks: TextLinks | undefined,
+ ): ReactNode[] {
+   const root = parseGfmWithMath(text)
+   const targets = createReferenceTargets()
+@@ -38,6 +40,7 @@ function renderSettled(
+     streaming: false,
+     labels,
+     fileMentions,
++    textLinks,
+     targets,
+     footnoteOrder: [],
+     footnoteCounts: new Map(),
+@@ -150,28 +153,31 @@ class StreamingRenderer {
+  * the single streaming gate — it applies to settled renders only, because a
+  * streaming message's vocabulary is not final and frozen cached elements
+  * must not bake in handlers that could go stale.
+- * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
+- * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
+- * images render directly.
++ * `textLinks` decorates settled prose and exact tokens asynchronously; its
++ * resolver owns recognition, and rejection leaves ordinary presentation.
++ * @returns A GFM document with TeX math rendered through KaTeX; raw HTML and
++ * unsafe hrefs are disabled, while absolute HTTP(S) images render directly.
+  */
+-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, labels, fileMentions }: {
++export const MarkdownText = memo(function MarkdownText({ text, streaming = false, labels, fileMentions, textLinks }: {
+   text: string
+   streaming?: boolean
+   labels: MarkdownLabels
+   fileMentions?: MarkdownFileMentions | undefined
++  /** Async links apply only after streaming settles, preserving incremental parsing. */
++  textLinks?: TextLinks | undefined
+ }) {
+   const streamRef = useRef<StreamingRenderer | null>(null)
+   const streamLabelsRef = useRef<MarkdownLabels>(labels)
+   const children = useMemo(() => {
+     if (!streaming) {
+       streamRef.current = null
+-      return renderSettled(text, labels, fileMentions)
++      return renderSettled(text, labels, fileMentions, textLinks)
+     }
+     if (streamRef.current === null || streamLabelsRef.current !== labels) {
+       streamRef.current = new StreamingRenderer(labels)
+       streamLabelsRef.current = labels
+     }
+     return streamRef.current.render(text)
+-  }, [text, streaming, labels, fileMentions])
++  }, [text, streaming, labels, fileMentions, textLinks])
+   return <div className={css.markdown}>{children}</div>
+ })
+diff --git a/packages/client/ui-primitives/src/markdown/render.tsx b/packages/client/ui-primitives/src/markdown/render.tsx
+index 950d85be52..b85b2bad6a 100644
+--- a/packages/client/ui-primitives/src/markdown/render.tsx
++++ b/packages/client/ui-primitives/src/markdown/render.tsx
+@@ -23,6 +23,8 @@ import type * as Md from 'mdast'
+ import type {} from 'mdast-util-math'
+ import { normalizeUri } from 'micromark-util-sanitize-uri'
+ import { CodeBlock } from './CodeBlock.tsx'
++import { LinkedText } from '../LinkedText.tsx'
++import type { TextLinks } from '../text-links.ts'
+ import { renderTexToReact } from './katex.tsx'
+ import type { PositionedBlock } from './incremental.ts'
+ import css from './MarkdownText.module.css'
+@@ -134,6 +136,8 @@ export interface MarkdownRenderContext {
+   readonly inBlockquote?: boolean
+   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
+   readonly fileMentions: MarkdownFileMentions | undefined
++  /** Settled display decorations; absent during incremental streaming. */
++  readonly textLinks?: TextLinks | undefined
+   /** Inside an anchor's children: interactive mentions must not nest there. */
+   readonly inLink?: boolean
+   /** Reference targets visible to this pass. */
+@@ -214,7 +218,9 @@ function renderChildren(
+ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderContext): ReactNode {
+   switch (node.type) {
+     case 'text':
+-      return node.value
++      return context.textLinks !== undefined && context.inLink !== true
++        ? <LinkedText key={key} text={node.value} links={context.textLinks} />
++        : node.value
+     case 'paragraph':
+       return <p key={key}>{renderChildren(node.children, context)}</p>
+     case 'heading':
+@@ -242,6 +248,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
+     case 'inlineCode': {
+       // Parity with mdast-util-to-hast: inline code renders line endings as spaces.
+       const value = node.value.replace(/\r?\n|\r/g, ' ')
++      if (context.inLink === true) return <code key={key}>{value}</code>
+       // An inline-code token that is entirely an absolute HTTP(S) URL keeps
+       // its code chrome and gains the same safe external anchor as a link;
+       // commands, partial URLs, and other schemes stay inert. The value is
+@@ -252,23 +259,16 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
+       // A token the owner's file-mention vocabulary recognizes opens that
+       // file; the resolver, not this renderer, decides what names a file.
+       // Inside an anchor the token stays inert — a button cannot nest there.
+-      const mention = context.inLink === true ? undefined : context.fileMentions?.resolve(value)
+-      if (mention !== undefined) {
+-        return (
+-          <code key={key}>
+-            <button
+-              type="button"
+-              className={css.fileMention}
+-              title={mention.title}
+-              aria-label={mention.label}
+-              onClick={mention.open}
+-            >
+-              {value}
+-            </button>
+-          </code>
+-        )
++      const mention = context.fileMentions?.resolve(value)
++      const fallback = mention === undefined ? value : (
++        <button type="button" className={css.fileMention} title={mention.title}
++          aria-label={mention.label} onClick={mention.open}>{value}</button>
++      )
++      if (context.textLinks !== undefined) {
++        return <code key={key}><LinkedText text={value} mode="target" links={context.textLinks}
++          fallback={fallback} /></code>
+       }
+-      return <code key={key}>{value}</code>
++      return <code key={key}>{fallback}</code>
+     }
+     case 'html':
+       // No HTML parser enters the pipeline: raw HTML stays literal text.
+@@ -287,7 +287,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
+     case 'table':
+       return renderTable(node, key, context)
+     case 'link':
+-      return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key)
++      return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
+     case 'linkReference':
+       return renderLinkReference(node, key, context)
+     case 'image':
+@@ -482,7 +482,10 @@ function renderSafeLink(href: string, children: ReactNode[], key: Key): ReactNod
+ }
+ 
+ /** Anchor over a parsed markdown destination, which hast normalized before the allowlist saw it. */
+-function renderAnchor(url: string, children: ReactNode[], key: Key): ReactNode {
++function renderAnchor(url: string, children: ReactNode[], key: Key, context: MarkdownRenderContext): ReactNode {
++  if (context.textLinks !== undefined && context.inLink !== true && sanitizeUrl(normalizeUri(url)) === '') {
++    return <LinkedText key={key} text={url} mode="target" links={context.textLinks}>{children}</LinkedText>
++  }
+   return renderSafeLink(normalizeUri(url), children, key)
+ }
+ 
+@@ -539,7 +542,7 @@ function renderLinkReference(
+     // not an anchor, so mentions inside it stay live.
+     return <Fragment key={key}>{'['}{renderChildren(node.children, context)}{referenceSuffix(node)}</Fragment>
+   }
+-  return renderAnchor(definition.url, renderChildren(node.children, { ...context, inLink: true }), key)
++  return renderAnchor(definition.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
+ }
+ 
+ function renderImageReference(
+diff --git a/packages/client/ui-primitives/src/text-links.ts b/packages/client/ui-primitives/src/text-links.ts
+new file mode 100644
+index 0000000000..372758c467
+--- /dev/null
++++ b/packages/client/ui-primitives/src/text-links.ts
+@@ -0,0 +1,28 @@
++/** Presentation-only links resolved by an owning feature. */
++export interface TextLink {
++  /** Inclusive UTF-16 offset in the supplied text. */
++  readonly start: number
++  /** Exclusive UTF-16 offset; ranges are ordered and non-overlapping. */
++  readonly end: number
++  /** Opaque target passed unchanged to the opener. */
++  readonly target: string
++  readonly title?: string
++  /** Optional display label replacing the matched text. */
++  readonly label?: string
++}
++
++/** Async decoration callbacks; no resource interpretation belongs to the renderer. */
++export interface TextLinks {
++  /**
++   * Resolve display ranges. Target mode accepts only a single complete range.
++   * @param text - Unmodified text or authored destination.
++   * @param mode - Prose discovery or exact-token resolution.
++   * @returns Ordered UTF-16 ranges; rejection leaves the text inert.
++   */
++  resolve: (text: string, mode: 'text' | 'target') => Promise<readonly TextLink[]>
++  /**
++   * Open a resolved target through the owner's error-handling channel.
++   * @param target - Opaque target returned by resolve.
++   */
++  open: (target: string) => void
++}
+diff --git a/packages/client/ui-primitives/src/user-text.tsx b/packages/client/ui-primitives/src/user-text.tsx
+index 494f49a868..905d52679d 100644
+--- a/packages/client/ui-primitives/src/user-text.tsx
++++ b/packages/client/ui-primitives/src/user-text.tsx
+@@ -9,6 +9,8 @@
+  * tokens were validated at compose time).
+  */
+ import type { ReactNode } from 'react'
++import { LinkedText } from './LinkedText.tsx'
++import type { TextLinks } from './text-links.ts'
+ import { ReferenceIcon } from './ReferenceIcon.tsx'
+ import css from './user-text.module.css'
+ 
+@@ -29,9 +31,16 @@ interface DecorationRange {
+  * Split one sent text into inline plain runs and reference chips.
+  * @param text - the logged model text of the message or queue row.
+  * @param sessionLabels - exact session mention labels associated by an adjacent recall.
++ * @param links - Optional asynchronous display decorations; uncovered text keeps reference chips.
+  * @returns inline nodes covering the whole text.
+  */
+-export function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode {
++export function projectUserText(text: string, sessionLabels: readonly string[], links?: TextLinks): ReactNode {
++  return links === undefined
++    ? projectUserTextPlain(text, sessionLabels)
++    : <LinkedText text={text} links={links} plain={value => projectUserTextPlain(value, sessionLabels)} />
++}
++
++function projectUserTextPlain(text: string, sessionLabels: readonly string[]): ReactNode {
+   const ranges: DecorationRange[] = []
+   SESSION_WIRE_RE.lastIndex = 0
+   let wire: RegExpExecArray | null
+diff --git a/packages/client/ui-primitives/tests/text-links.client.spec.tsx b/packages/client/ui-primitives/tests/text-links.client.spec.tsx
+new file mode 100644
+index 0000000000..f457bcd6b0
+--- /dev/null
++++ b/packages/client/ui-primitives/tests/text-links.client.spec.tsx
+@@ -0,0 +1,122 @@
++// @vitest-environment jsdom
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { MarkdownText } from '../src/markdown/MarkdownText.tsx'
++import { projectUserText } from '../src/user-text.tsx'
++import type { TextLink, TextLinks } from '../src/text-links.ts'
++import { markdownLabels as labels } from './labels.client.ts'
++
++afterEach(cleanup)
++
++function deferred() {
++  let resolve!: (links: readonly TextLink[]) => void
++  const promise = new Promise<readonly TextLink[]>((done) => { resolve = done })
++  return { promise, resolve }
++}
++
++describe('asynchronous display links', () => {
++  it('decorates UTF-16 prose ranges after resolution and preserves uncovered text', async () => {
++    const pending = deferred()
++    const links: TextLinks = { resolve: vi.fn(() => pending.promise), open: vi.fn() }
++    const source = '🙂 report.txt remains'
++    const view = render(<MarkdownText text={source} labels={labels} textLinks={links} />)
++    expect(view.container.textContent).toBe(source)
++    expect(screen.queryByRole('button')).toBeNull()
++    await act(async () => { pending.resolve([{ start: 3, end: 13, target: 'opaque', title: 'report' }]) })
++    fireEvent.click(screen.getByRole('button', { name: 'report.txt' }))
++    expect(links.open).toHaveBeenCalledWith('opaque')
++    expect(view.container.textContent).toBe(source)
++    expect([...view.container.querySelector('p')!.childNodes].map(node => ({
++      role: node instanceof HTMLButtonElement ? 'button' : 'text', text: node.textContent,
++    }))).toMatchInlineSnapshot(`
++      [
++        {
++          "role": "text",
++          "text": "🙂 ",
++        },
++        {
++          "role": "button",
++          "text": "report.txt",
++        },
++        {
++          "role": "text",
++          "text": " remains",
++        },
++      ]
++    `)
++  })
++
++  it('ignores obsolete text, callback, and unmount completions', async () => {
++    const first = deferred()
++    const second = deferred()
++    const third = deferred()
++    const links: TextLinks = { resolve: vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise), open: vi.fn() }
++    const view = render(<MarkdownText text="old" labels={labels} textLinks={links} />)
++    await waitFor(() => { expect(links.resolve).toHaveBeenCalledTimes(1) })
++    view.rerender(<MarkdownText text="new" labels={labels} textLinks={links} />)
++    await waitFor(() => { expect(links.resolve).toHaveBeenCalledTimes(2) })
++    await act(async () => { first.resolve([{ start: 0, end: 3, target: 'old' }]) })
++    expect(screen.queryByRole('button')).toBeNull()
++    const replacement: TextLinks = { resolve: () => third.promise, open: links.open }
++    view.rerender(<MarkdownText text="new" labels={labels} textLinks={replacement} />)
++    await act(async () => { second.resolve([{ start: 0, end: 3, target: 'second' }]) })
++    expect(view.container.textContent).toBe('new')
++    expect(screen.queryByRole('button')).toBeNull()
++    view.unmount()
++    await act(async () => { third.resolve([{ start: 0, end: 3, target: 'third' }]) })
++    expect(view.container.textContent).toBe('')
++  })
++
++  it('keeps rejected discovery inert and does not discover streaming text', async () => {
++    const links: TextLinks = { resolve: vi.fn(async () => { throw new Error('offline') }), open: vi.fn() }
++    const view = render(<MarkdownText text="report.txt" streaming labels={labels} textLinks={links} />)
++    view.rerender(<MarkdownText text="report.txt grows" streaming labels={labels} textLinks={links} />)
++    expect(links.resolve).not.toHaveBeenCalled()
++    await act(async () => { view.rerender(<MarkdownText text="report.txt" labels={labels} textLinks={links} />) })
++    expect(links.resolve).toHaveBeenCalledWith('report.txt', 'text')
++    expect(view.container.textContent).toBe('report.txt')
++    expect(screen.queryByRole('button')).toBeNull()
++  })
++
++  it('resolves exact inline code and authored destinations without nested controls or unsafe anchors', async () => {
++    const links: TextLinks = {
++      resolve: vi.fn<TextLinks['resolve']>(async (text, mode) => mode === 'target' && text === 'report.txt'
++        ? [{ start: 0, end: text.length, target: 'file' }] : []),
++      open: vi.fn(),
++    }
++    const source = '`report.txt` [report](report.txt) [`report.txt`](https://example.com) [bad](javascript:evil)'
++    const view = render(<MarkdownText text={source} labels={labels} textLinks={links} />)
++    await screen.findByRole('button', { name: 'report' })
++    expect(screen.getByRole('button', { name: 'report.txt' })).toBeTruthy()
++    const anchor = screen.getByRole('link')
++    expect(anchor.getAttribute('href')).toBe('https://example.com')
++    expect(anchor.getAttribute('rel')).toBe('noopener noreferrer')
++    expect(anchor.querySelector('button, a')).toBeNull()
++    expect(view.container.querySelector('[href^="javascript:"]')).toBeNull()
++    expect(links.resolve).not.toHaveBeenCalledWith('https://example.com', 'target')
++    expect(view.container.textContent).toBe('report.txt report report.txt bad')
++  })
++
++  it('requires the entire target and preserves legacy inline-code fallback', async () => {
++    const legacy = vi.fn()
++    const links: TextLinks = { resolve: async () => [{ start: 0, end: 2, target: 'partial' }], open: vi.fn() }
++    render(<MarkdownText text="`report.txt`" labels={labels} textLinks={links}
++      fileMentions={{ resolve: () => ({ open: legacy, label: 'legacy file', title: 'report.txt' }) }} />)
++    await act(async () => {})
++    fireEvent.click(screen.getByRole('button', { name: 'legacy file' }))
++    expect(legacy).toHaveBeenCalledOnce()
++    expect(links.open).not.toHaveBeenCalled()
++  })
++
++  it('keeps existing user chips and makes a known raw session reference clickable', async () => {
++    const source = '/plan @[Related](dsh-session:other) tail'
++    const links: TextLinks = {
++      resolve: async () => [{ start: 6, end: 35, target: 'session' }], open: vi.fn(),
++    }
++    const view = render(<div>{projectUserText(source, [], links)}</div>)
++    fireEvent.click(await screen.findByRole('button', { name: 'Related' }))
++    expect(links.open).toHaveBeenCalledWith('session')
++    expect(view.container.querySelector('[data-ref-chip="skill"]')?.textContent).toBe('/plan')
++    expect(view.container.textContent).toBe('/plan Related tail')
++  })
++})
