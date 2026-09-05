@@ -19,8 +19,9 @@ pnpm test
 DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run setup
 DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run setup --install
 DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run uninstall --check
+DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run uninstall --remove
 ```
 
-The profile must already compose the file manager, generic resource workbench and right sidebar. Those plugins own their respective installation transactions. Do not hand-edit profile dependency or Bundle JSON. Setup requires the adapter patch maintained in this repository; it does not adopt historical patches owned by other plugins.
+The profile must already compose the file manager, generic resource workbench and right sidebar. Those plugins own their respective installation transactions. Do not hand-edit profile dependency or Bundle JSON. Setup requires the adapter patch maintained in this repository; it does not adopt historical patches owned by other plugins. The patch expects the earlier Chat waterfall baseline; see [Host baseline and receipt limits](.intent/state/STATE.md#host-baseline-and-receipt-limits) before selecting a new Host or reversing an integrated installation.
 
 Uninstall can resume after the dependency transaction has completed. It verifies absence from the manifest, lockfile and composed profile, then removes a leftover package symlink only when it resolves to this exact checkout. A different target or a real directory is retained and reported as a conflict. Host reversal and Client catalog regeneration follow verified package removal.
