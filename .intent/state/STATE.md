@@ -1,6 +1,6 @@
 # Resource links
 
-Status: candidate implementation validated in a private Web profile; not installed in the managed Web service or user-accepted. Executed evidence is recorded in [LOG](../LOG.md).
+Status: locally installed and activated in the managed Web service after private validation and explicit user authorization. [Deployment evidence](../logs/2026-09-05-managed-activation.md) records source bindings and browser observations; no user visual acceptance or accepted realization lock is claimed. Executed evidence is recorded in [LOG](../LOG.md).
 
 Displayed message text may link existing filesystem paths relative to the owning session workspace. Files open through the resource workbench; directories open the file manager through the right sidebar. Explicit session references navigate to their session. Recognition and routing belong to this plugin, not to the text editor or file manager.
 

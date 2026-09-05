@@ -1,6 +1,6 @@
 # Resource links for DeepSeek Harness
 
-This independent plugin discovers existing filesystem paths in displayed Chat messages and routes explicit resource opens. It is a privately validated candidate, not installed in the managed Web service or accepted by the user. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
+This independent plugin discovers existing filesystem paths in displayed Chat messages and routes explicit resource opens. The local Web deployment is recorded in [the activation log](.intent/logs/2026-09-05-managed-activation.md); that record does not establish user visual acceptance or portability to another Host. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
 
 The [package reference](packages/dsh-resource-links/README.md) owns recognition, configuration and routing behavior. [STATE](.intent/state/STATE.md) records intended behavior; [LOG](.intent/LOG.md) records executed evidence. The [ownership note](docs/agent-notes/resource-links-ownership.md) explains the direct transfer of Chat routing from the manager.
 

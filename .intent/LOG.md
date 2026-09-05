@@ -1,5 +1,7 @@
 # Execution log
 
+Current deployment: [authorized managed activation](logs/2026-09-05-managed-activation.md). Earlier candidate and private-probe entries below are historical evidence.
+
 ## 2026-09-05 candidate implementation
 
 Implementation is confined to `/root/dsh-resource-workbench-candidate/dsh-resource-links`, using the explicit candidate Harness at `/root/dsh-resource-workbench-candidate/harness`. The original resource-links checkout, live profile and managed service are untouched. Main integration independently owns the incremental Host patch and its receipt tool.
