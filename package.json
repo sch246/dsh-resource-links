@@ -1,0 +1,31 @@
+{
+  "name": "dsh-resource-links-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "typecheck": "bash scripts/typecheck.sh",
+    "test": "vitest run packages/dsh-resource-links/tests",
+    "setup": "bash scripts/setup.sh",
+    "uninstall": "bash scripts/uninstall.sh"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0-rc",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.2-alpha.2",
+    "@dsh-external/dsh-file-manager": "link:../dsh-file-manager/packages/dsh-file-manager",
+    "@dsh-external/dsh-file-viewer": "link:../dsh-file-viewer/packages/dsh-file-viewer",
+    "@dsh-external/dsh-right-sidebar": "link:../dsh-right-sidebar",
+    "@types/node": "^24.3.0",
+    "@types/react": "~18.3.1",
+    "typescript": "^5.9.0",
+    "tsdown": "^0.15.0",
+    "vitest": "^3.2.4"
+  }
+}

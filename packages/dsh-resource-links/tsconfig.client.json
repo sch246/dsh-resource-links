@@ -1,0 +1,16 @@
+{
+  "extends": "../../harness/tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src", "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/types/tsconfig.client.tsbuildinfo"
+  },
+  "include": ["src/client", "src/types.ts"],
+  "references": [
+    { "path": "../../harness/vendor/cordis" },
+    { "path": "../../harness/packages/api/remotes/tsconfig.client.json" },
+    { "path": "../../harness/packages/api/session-controller/tsconfig.client.json" },
+    { "path": "../../harness/packages/client/ui-chat" },
+    { "path": "../../harness/packages/core/session" },
+    { "path": "../../harness/packages/typert/protocol" }
+  ]
+}

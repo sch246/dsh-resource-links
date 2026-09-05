@@ -1,0 +1,11 @@
+- insert:
+    - id: dsh-resource-links
+      name: '@dsh-external/dsh-resource-links'
+      config:
+        openMode: preview
+        batchDelayMs: 10
+        maxBatchSize: 128
+        cacheTtlMs: 5000
+        maxCacheEntries: 2048
+        maxPendingPaths: 4096
+        maxCandidatesPerText: 256
