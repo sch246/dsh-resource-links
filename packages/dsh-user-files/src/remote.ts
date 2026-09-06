@@ -6,7 +6,7 @@ import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepse
 import {
   UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
-import type { UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -161,6 +161,19 @@ export class UserFileRemote extends TypertRemoteService {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
       return await this.filesystem.saveText(path, request.text, request.version, signal, request.allowLargeFile, request.maxConfirmedBytes)
+    })
+  }
+
+  /**
+   * Atomically replace hash-checked line ranges while retaining current content outside those ranges.
+   * @param request Session, file, confirmation ceiling and ordered original-coordinate ranges.
+   * @param signal Cancellation before publication. @returns Published revision, bytes and complete canonical content hash.
+   */
+  @Remote('patchText')
+  async patchText(request: UserFilePatchRequest, signal: AbortSignal): Promise<UserFilePatchResult> {
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
+      return await this.filesystem.patchText(path, request.ranges, signal, request.allowLargeFile, request.maxConfirmedBytes)
     })
   }
 

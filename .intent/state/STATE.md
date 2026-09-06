@@ -16,6 +16,8 @@ Large text files require an explicit confirmation opportunity rather than a perm
 
 Progressive text loading delivers metadata before content, sequential canonical-text fragments with raw-byte progress, and a validated revision only after the complete file is read. Keep partial content provisional and discard it on failure; cancellation or early consumer exit releases the file. Consumers requiring this stream API declare a compatible provider range starting at version 0.1.2. The provider configuration owns the raw read chunk size. Complete-document reads remain available for consumers that need them.
 
+Incremental text saves transmit only ordered original-coordinate line ranges and mandatory hashes of their old canonical content. The provider validates every range against one current disk snapshot and preserves changes outside those ranges. Conflicting ranges prevent the entire publication; a final snapshot check protects against changes during staging. Preserve BOM, untouched EOL bytes and exact replacement terminal newlines. Return the actual complete canonical hash with published revision and byte count so consumers can detect preserved external changes without returning complete text. Empty ranges return current metadata without writing. Consumers requiring `patchText` declare a compatible provider range starting at version 0.1.3. The [package reference](../../packages/dsh-user-files/README.md) owns line-token and replacement-EOL details.
+
 ## Installation map
 
 ### Select capabilities and configuration

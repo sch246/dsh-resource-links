@@ -7,7 +7,7 @@ import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'no
 import { lookup as lookupMediaType } from 'mime-types'
 import type {
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
-  UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent,
+  UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent, UserFileTextPatch, UserFilePatchResult,
 } from './types.ts'
 
 /** Stable user-filesystem failures translated by the Host Remote. */
@@ -159,6 +159,74 @@ function canonicalText(text: string): string {
   return text.replace(/\r\n|\r/g, '\n')
 }
 
+function decodeText(bytes: Uint8Array, path: string): string {
+  if (bytes.includes(0)) throw new UserFileFilesystemError('not-text', path, `path "${path}" contains NUL bytes`)
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch (error: unknown) {
+    throw new UserFileFilesystemError('not-text', path, `path "${path}" is not UTF-8 text`, { cause: error })
+  }
+}
+
+function lineTokens(text: string): string[] {
+  return text.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []
+}
+
+function lineEnding(line: string | undefined): string | undefined {
+  return line?.match(/\r\n$|\r$|\n$/u)?.[0]
+}
+
+function patchRanges(path: string, ranges: readonly UserFileTextPatch[]): readonly UserFileTextPatch[] {
+  return ranges.map(range => {
+    if (!/^[a-f\d]{64}$/u.test(range.expectedHash)
+      || /[\r\0]/u.test(range.replacement) || !range.replacement.isWellFormed()) {
+      throw new UserFileFilesystemError('invalid-request', path, 'text patches require lowercase SHA-256 hashes and well-formed canonical LF text')
+    }
+    return { ...range }
+  })
+}
+
+function replacementLines(lines: readonly string[], range: UserFileTextPatch): string {
+  const old = lines.slice(range.startLine, range.startLine + range.lineCount)
+  const replacement = lineTokens(range.replacement)
+  let prefix = 0
+  while (prefix < old.length && prefix < replacement.length && canonicalText(old[prefix]!) === replacement[prefix]) prefix++
+  let suffix = 0
+  while (suffix < old.length - prefix && suffix < replacement.length - prefix
+    && canonicalText(old[old.length - suffix - 1]!) === replacement[replacement.length - suffix - 1]) suffix++
+  const fallback = old.map(lineEnding).findLast(ending => ending !== undefined)
+    ?? lineEnding(lines[range.startLine - 1]) ?? lineEnding(lines[range.startLine + range.lineCount]) ?? '\n'
+  return replacement.map((line, index) => {
+    if (index < prefix) return old[index]!
+    if (index >= replacement.length - suffix) return old[old.length - (replacement.length - index)]!
+    return line.endsWith('\n') ? line.slice(0, -1) + (lineEnding(old[index]) ?? fallback) : line
+  }).join('')
+}
+
+function patchedBytes(current: ReadBytesResult, ranges: readonly UserFileTextPatch[]): Uint8Array {
+  const lines = lineTokens(decodeText(current.bytes, current.path))
+  let end = 0
+  for (const range of ranges) {
+    const emptyInsertion = lines.length === 0 && ranges.length === 1 && range.startLine === 0 && range.lineCount === 0
+    if (!Number.isSafeInteger(range.startLine) || !Number.isSafeInteger(range.lineCount)
+      || range.startLine < end || range.lineCount < 0 || (range.lineCount === 0 && !emptyInsertion)
+      || range.startLine + range.lineCount > lines.length
+      || sha256(Buffer.from(canonicalText(lines.slice(range.startLine, range.startLine + range.lineCount).join('')))) !== range.expectedHash) {
+      throw new UserFileFilesystemError('stale-version', current.path, `text patch range in "${current.path}" no longer matches`)
+    }
+    end = range.startLine + range.lineCount
+  }
+  const output: string[] = []
+  let position = 0
+  for (const range of ranges) {
+    output.push(lines.slice(position, range.startLine).join(''), replacementLines(lines, range))
+    position = range.startLine + range.lineCount
+  }
+  output.push(lines.slice(position).join(''))
+  const bom = current.bytes[0] === 0xef && current.bytes[1] === 0xbb && current.bytes[2] === 0xbf ? '\uFEFF' : ''
+  return Buffer.from(bom + output.join(''))
+}
+
 function restoreEol(text: string, revision: RevisionPayload): string {
   if (revision.eol === 'none' || revision.eol === 'lf') return text
   if (revision.eol === 'crlf') return text.replaceAll('\n', '\r\n')
@@ -239,15 +307,7 @@ export class UserFileFilesystem {
    */
   async readText(path: string, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFileTextDocument> {
     const result = await this.#readFileBytes(path, signal, this.#textPolicy(path, allowLargeFile, maxConfirmedBytes))
-    let decoded: string
-    if (result.bytes.includes(0)) {
-      throw new UserFileFilesystemError('not-text', result.path, `path "${result.path}" contains NUL bytes`)
-    }
-    try {
-      decoded = new TextDecoder('utf-8', { fatal: true }).decode(result.bytes)
-    } catch (error: unknown) {
-      throw new UserFileFilesystemError('not-text', result.path, `path "${result.path}" is not UTF-8 text`, { cause: error })
-    }
+    const decoded = decodeText(result.bytes, result.path)
     const metadata = eolMetadata(decoded)
     const payload: RevisionPayload = { ...result.payload, ...metadata }
     return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload), sizeBytes: result.payload.stat.size }
@@ -378,6 +438,32 @@ export class UserFileFilesystem {
     )
   }
 
+  /**
+   * Check all original-coordinate ranges against one current snapshot, then atomically publish their replacements.
+   * @param path File to patch. @param ranges Ordered disjoint LF-token ranges with mandatory old-content hashes.
+   * @param signal Request cancellation. @param allowLargeFile Explicit existing-content confirmation.
+   * @param maxConfirmedBytes Optional inclusive positive safe-integer existing-file ceiling.
+   * @returns Published revision, exact bytes and SHA-256 of the actual complete canonical output.
+   */
+  async patchText(
+    path: string, ranges: readonly UserFileTextPatch[], signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number,
+  ): Promise<UserFilePatchResult> {
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    const patches = patchRanges(path, ranges)
+    return await this.mutate(signal, async () => {
+      const initial = await this.#readFileBytes(path, signal, policy)
+      const saved = patches.length === 0
+        ? initial
+        : await this.#replace(initial.path, initial.payload, patchedBytes(initial, patches), signal, policy)
+      const text = decodeText(saved.bytes, saved.path)
+      return {
+        version: encodeRevision({ ...saved.payload, ...eolMetadata(text) }),
+        sizeBytes: saved.payload.stat.size,
+        canonicalHash: sha256(Buffer.from(canonicalText(text))),
+      }
+    })
+  }
+
   /** Stage and atomically replace exact bytes after the last revision check. */
   async saveBytes(
     path: string,
@@ -417,38 +503,45 @@ export class UserFileFilesystem {
       }
       const bytes = bytesOf(expected)
       if (policy.kind === 'bytes') this.#checkSize(canonical, bytes.byteLength, policy)
-      const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
-      let staged = false
-      try {
-        const handle = await open(stage, 'wx', expected.stat.mode & 0o777)
-        staged = true
-        try {
-          await handle.chmod(expected.stat.mode & 0o7777)
-          await handle.writeFile(bytes)
-          await handle.sync()
-        } finally {
-          await handle.close()
-        }
-        const current = await this.#readFileBytes(canonical, signal, policy)
-        if (!sameStat(current.payload.stat, expected.stat) || current.payload.sha256 !== expected.sha256) {
-          throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed after it was loaded`)
-        }
-        signal.throwIfAborted()
-        await rename(stage, canonical)
-        staged = false
-        // Publication is terminal: cancellation after rename must not report that the save did not happen.
-        // Published text is already supplied by the caller and needs no additional loading confirmation.
-        const publishedPolicy: FileSizePolicy = policy.kind === 'text' ? { kind: 'text', thresholdBytes: Infinity } : policy
-        const saved = await this.#readFileBytes(canonical, new AbortController().signal, publishedPolicy)
-        return { version: encodeRevision(revisionOf(saved)), sizeBytes: saved.payload.stat.size }
-      } catch (error: unknown) {
-        throw mapNodeError(error, canonical)
-      } finally {
-        if (staged) {
-          try { await rm(stage, { force: true }) } catch { /* A failed stage cleanup cannot replace the primary failure. */ }
-        }
-      }
+      const saved = await this.#replace(canonical, expected, bytes, signal, policy)
+      return { version: encodeRevision(revisionOf(saved)), sizeBytes: saved.payload.stat.size }
     })
+  }
+
+  async #replace(
+    canonical: string, expected: RevisionPayload, bytes: Uint8Array, signal: AbortSignal, policy: FileSizePolicy,
+  ): Promise<ReadBytesResult> {
+    const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
+    let staged = false
+    try {
+      const handle = await open(stage, 'wx', expected.stat.mode & 0o777)
+      staged = true
+      try {
+        await handle.chmod(expected.stat.mode & 0o7777)
+        await handle.writeFile(bytes)
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      const current = await this.#readFileBytes(canonical, signal, policy)
+      if (!sameStat(current.payload.stat, expected.stat) || current.payload.sha256 !== expected.sha256) {
+        throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed after it was loaded`)
+      }
+      signal.throwIfAborted()
+      await rename(stage, canonical)
+      staged = false
+      // Publication is terminal: cancellation after rename must not report that the save did not happen.
+      // Published text combines supplied replacements with already validated content and needs no additional confirmation.
+      const publishedPolicy: FileSizePolicy = policy.kind === 'text' ? { kind: 'text', thresholdBytes: Infinity } : policy
+      const saved = await this.#readFileBytes(canonical, new AbortController().signal, publishedPolicy)
+      return saved
+    } catch (error: unknown) {
+      throw mapNodeError(error, canonical)
+    } finally {
+      if (staged) {
+        try { await rm(stage, { force: true }) } catch { /* A failed stage cleanup cannot replace the primary failure. */ }
+      }
+    }
   }
 
   #textPolicy(path: string, allowLargeFile: boolean, maxConfirmedBytes: number | undefined): FileSizePolicy {

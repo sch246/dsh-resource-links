@@ -1,0 +1,9 @@
+# Incremental text saves
+
+The consumer owns edit tracking and sends original-coordinate line ranges with mandatory hashes of the canonical old content. The provider owns current-disk validation, EOL and BOM preservation, serialization and atomic publication. It does not require a client whole-document base revision. Changes outside the addressed ranges can survive; every addressed range must still match the same current snapshot. The complete server snapshot is checked again immediately before rename using the shared text/byte publisher.
+
+Canonical line tokens include a terminating LF when present, with no phantom token after a final LF. Pure insertions into a nonempty file include neighboring context so that their location has a content precondition. Empty-file insertion uses position zero and the mandatory empty-content hash. Empty patch lists observe current content without publication.
+
+Untouched current bytes and the original UTF-8 BOM survive. Matching prefix and suffix context inside expanded replacements also retains its original bytes. Changed lines inherit old-range endings by position, with a last-ending or adjacent-line fallback. Replacement terminal-newline presence remains explicit. The returned complete canonical hash describes actual output, including preserved external edits; the consumer can compare and refresh without receiving a second complete document in the save response.
+
+The Python range-hash idea in `/root/bot/mods/tools/host.py` and line replacement helper in `/root/bot/mods/file.py` informed this interface. This provider keeps mandatory SHA-256 range checks, exact newline semantics and its existing atomic publisher. The [package reference](../../packages/dsh-user-files/README.md) owns the detailed API; [LOG](../../.intent/LOG.md) records candidate verification.

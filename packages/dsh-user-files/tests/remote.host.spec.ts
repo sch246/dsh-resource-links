@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -159,6 +160,36 @@ it('transports typed large-file confirmation details and explicit read/save appr
       .rejects.toMatchObject({ code: 'gateway/cancelled' })
     await expect(remote.readText({ ...request, path: 'missing', allowLargeFile: true }, signal))
       .rejects.toMatchObject({ code: 'user-files/not-found' })
+  } finally {
+    await fiber.dispose()
+    await rm(root, { recursive: true })
+  }
+})
+
+it('publishes range patches through the Cordis service and maps validation, conflict and cancellation errors', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-user-files-patch-remote-'))
+  const ctx = new Context()
+  const fiber = ctx.plugin({ apply: (scope: Context) => {
+    new UserFileRemote(scope, new UserFileFilesystem(4, 8), Config({}))
+  } })
+  try {
+    const path = join(root, 'file.txt')
+    await writeFile(path, 'a\r\nb')
+    await fiber.await()
+    const remote = ctx.get('userFiles') as UserFileRemote
+    const expectedHash = createHash('sha256').update('a\n').digest('hex')
+    const request = { sessionId: 'patch' as SessionId, path, ranges: [{ startLine: 0, lineCount: 1, expectedHash, replacement: 'A\n' }] }
+    const signal = new AbortController().signal
+    await expect(remote.patchText({ ...request, maxConfirmedBytes: 0 }, signal)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    await expect(remote.patchText({ ...request, ranges: [{ ...request.ranges[0]!, expectedHash: '' }] }, signal))
+      .rejects.toMatchObject({ code: 'gateway/bad-request' })
+    const saved = await remote.patchText(request, signal)
+    expect(saved).toMatchObject({ sizeBytes: 4, canonicalHash: createHash('sha256').update('A\nb').digest('hex') })
+    expect(saved).not.toHaveProperty('text')
+    await expect(remote.patchText(request, signal)).rejects.toMatchObject({ code: 'user-files/stale-version' })
+    await expect(remote.patchText(request, AbortSignal.abort())).rejects.toMatchObject({ code: 'gateway/cancelled' })
+    await writeFile(path, 'large')
+    await expect(remote.patchText(request, signal)).rejects.toMatchObject({ code: 'user-files/confirmation-required' })
   } finally {
     await fiber.dispose()
     await rm(root, { recursive: true })

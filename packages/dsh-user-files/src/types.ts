@@ -89,6 +89,31 @@ export interface UserFileSaveRequest extends UserFileReadTextRequest {
   readonly version: UserFileRevision
 }
 
+/** Original zero-based LF-token range; terminated lines include LF and an empty document has no tokens. */
+export interface UserFileTextPatch {
+  readonly startLine: number
+  /** Positive token count; zero is permitted only at position zero of an empty canonical file. */
+  readonly lineCount: number
+  /** Lowercase SHA-256 of the exact canonical old range, including its terminal LF when present. */
+  readonly expectedHash: string
+  /** Canonical LF replacement, without NUL, CR or malformed UTF-16. */
+  readonly replacement: string
+}
+
+/** Ordered disjoint ranges checked together against current disk content; no whole-document base revision. */
+export interface UserFilePatchRequest extends UserFileReadTextRequest {
+  /** Empty ranges return current metadata without writing. */
+  readonly ranges: readonly UserFileTextPatch[]
+}
+
+/** Published metadata without complete document content. */
+export interface UserFilePatchResult {
+  readonly version: UserFileRevision
+  readonly sizeBytes: number
+  /** Lowercase SHA-256 of the actual complete canonical LF output, excluding its UTF-8 BOM. */
+  readonly canonicalHash: string
+}
+
 /** Opaque revision after a successful replacement. */
 export interface UserFileSaveResult {
   readonly version: UserFileRevision
