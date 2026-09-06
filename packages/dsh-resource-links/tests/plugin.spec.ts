@@ -47,7 +47,10 @@ it('mounts only its own Remote and removes the resolver and Chat listener on dis
     await fiber.await()
     const links = ctx.get('chatTextLinks') as ChatTextLinks
     expect(links).toBeDefined()
-    expect(await links.resolve(sessionId, 'a.md b.md', 'text')).toHaveLength(2)
+    expect(await links.resolve(sessionId, 'a.md b.md', 'text')).toEqual([])
+    expect(manager.resolveMany).not.toHaveBeenCalled()
+    const discovered = await Promise.all(['a.md', 'b.md'].map(path => links.resolve(sessionId, path, 'inline-code')))
+    expect(discovered.flat()).toHaveLength(2)
     expect(manager.resolveMany.mock.calls.map(call => call[0].paths)).toEqual([['a.md'], ['b.md']])
     await ctx.waterfall('chat/open-workspace-file', { sessionId, path: 'a.md' }, async () => {})
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ ref: expect.objectContaining({ resourceId: '/canonical/a.md' }) }), { preview: true })

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "typecheck": "bash scripts/typecheck.sh",
-    "test": "vitest run packages/dsh-resource-links/tests",
+    "test": "bash scripts/test.sh",
     "setup": "bash scripts/setup.sh",
     "uninstall": "bash scripts/uninstall.sh"
   },
@@ -26,6 +26,11 @@
     "@types/react": "~18.3.1",
     "typescript": "^5.9.0",
     "tsdown": "^0.15.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@testing-library/dom": "^10.4.1"
   }
 }

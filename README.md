@@ -1,6 +1,6 @@
 # Resource links for DeepSeek Harness
 
-This independent plugin discovers existing filesystem paths in displayed Chat messages and routes explicit resource opens. The local Web deployment is recorded in [the activation log](.intent/logs/2026-09-05-managed-activation.md); that record does not establish user visual acceptance or portability to another Host. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
+This independent plugin discovers existing filesystem paths in Markdown inline code in displayed Chat messages and routes explicit resource opens. The local Web deployment is recorded in [the activation log](.intent/logs/2026-09-05-managed-activation.md); that record does not establish user visual acceptance or portability to another Host. The Host adapter patch and plugin must be deployed together with the matching file-manager and resource-workbench versions.
 
 The [package reference](packages/dsh-resource-links/README.md) owns recognition, configuration and routing behavior. [STATE](.intent/state/STATE.md) records intended behavior; [LOG](.intent/LOG.md) records executed evidence. The [ownership note](docs/agent-notes/resource-links-ownership.md) explains the direct transfer of Chat routing from the manager.
 
@@ -10,7 +10,7 @@ Build against an explicitly selected Harness after its Host and Client declarati
 pnpm install --ignore-scripts
 DSH_CHECKOUT=/absolute/candidate/harness pnpm run build
 DSH_CHECKOUT=/absolute/candidate/harness pnpm run typecheck
-pnpm test
+DSH_CHECKOUT=/absolute/candidate/harness pnpm test
 ```
 
 `DSH_CHECKOUT`, `DSH_HOME` and `DSH_PROFILE` are required for profile operations. Both setup and uninstall inspect by default. Setup `--install` applies the owned incremental Host patch, rebuilds its Host/browser artifacts and this plugin, and installs its Bundle with `dsh plugin add`; uninstall `--remove` verifies patch ownership, atomically removes the Bundle, reverses its patch and rebuilds the changed Host/browser artifacts. Neither command restarts a service. A failure stops at that step; earlier source/artifact changes remain visible for recovery. Use a private Home containing the target profile's complete plugin set for the first installation probe; package presence alone does not prove the browser can boot.

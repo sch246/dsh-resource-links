@@ -41,8 +41,8 @@ export class ResourceLinksRuntime implements ChatTextLinks {
   /** @param gateway Injected metadata and navigation operations. @param config Validated limits, capped to manager metadata. @param now Instance-local clock for cache expiry. */
   constructor(private readonly gateway: Gateway, private readonly config: ResourceLinksConfig, private readonly now: () => number = () => performance.now()) {}
 
-  /** @param sessionId Source session. @param text Displayed source. @param mode Recognition mode. @returns Existing resource ranges; discovery failures stay inert. */
-  async resolve(sessionId: SessionId, text: string, mode: 'text' | 'target'): Promise<readonly TextLink[]> {
+  /** @param sessionId Source session. @param text Displayed source. @param mode Markdown context; only inline-code discovers filesystem paths. @returns Existing resource ranges; discovery failures stay inert. */
+  async resolve(sessionId: SessionId, text: string, mode: Parameters<ChatTextLinks['resolve']>[2]): Promise<readonly TextLink[]> {
     if (this.disposed) return []
     const found = candidates(text, mode, this.config.maxCandidatesPerText)
     const links = await Promise.all(found.map(async item => {

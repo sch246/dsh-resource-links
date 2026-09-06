@@ -27,19 +27,20 @@ export function filesystemTarget(target: string, allowBasename = true): string |
   return allowBasename ? path : undefined
 }
 
-function candidate(target: string, start: number, end: number, label?: string, allowBasename = false): Candidate | undefined {
-  if (sessionTarget(target) === undefined && filesystemTarget(target, allowBasename) === undefined) return undefined
+function candidate(target: string, start: number, end: number, label?: string, allowFilesystem = false): Candidate | undefined {
+  if (sessionTarget(target) === undefined && (!allowFilesystem || filesystemTarget(target) === undefined)) return undefined
   return { start, end, target, ...(label === undefined ? {} : { label }) }
 }
 
-/** @param text Displayed source. @param mode Whole destination or prose scanning. @param limit Candidate budget. @returns Ordered non-overlapping UTF-16 ranges. */
-export function candidates(text: string, mode: 'text' | 'target', limit: number): readonly Candidate[] {
-  if (mode === 'target') {
-    const found = candidate(text, 0, text.length, undefined, true)
+/** @param text Displayed source. @param mode Parsed inline code permits filesystem discovery; prose and authored destinations only permit explicit session references. @param limit Candidate budget. @returns Ordered non-overlapping UTF-16 ranges. */
+export function candidates(text: string, mode: 'text' | 'inline-code' | 'target', limit: number): readonly Candidate[] {
+  if (limit <= 0) return []
+  if (mode !== 'text') {
+    const found = candidate(text, 0, text.length, undefined, mode === 'inline-code')
     return found === undefined ? [] : [found]
   }
   const result: Candidate[] = []
-  // A URI or email stays one token, so its path-looking suffix cannot become a filesystem request.
+  // Session references retain their labels and prose delimiters in text mode.
   const tokens = /@\[([^\]\n]+)\]\((dsh-session:[^\s)]+)\)|"([^"\n]+)"|'([^'\n]+)'|[^\s<>"'`，。；！？、]+/gu
   for (const match of text.matchAll(tokens)) {
     if (result.length >= limit) break
