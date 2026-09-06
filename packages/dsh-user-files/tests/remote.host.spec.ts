@@ -124,16 +124,35 @@ it('transports typed large-file confirmation details and explicit read/save appr
     })
     const loaded = await remote.readText({ ...request, allowLargeFile: true }, signal)
     expect(loaded.text).toBe('large\ntext')
+    expect(loaded.sizeBytes).toBe(11)
     await expect(remote.saveText({ ...request, text: loaded.text, version: loaded.version }, signal))
       .rejects.toMatchObject({ code: 'user-files/confirmation-required', details: { path, sizeBytes: 11, thresholdBytes: 4 } })
     const saved = await remote.saveText({ ...request, text: 'large\nedit', version: loaded.version, allowLargeFile: true }, signal)
     expect(saved.version).not.toBe(loaded.version)
+    expect(saved.sizeBytes).toBe(11)
     expect(await readFile(path, 'utf8')).toBe('large\r\nedit')
     const small = await remote.saveText({ ...request, text: 'a\n', version: saved.version, allowLargeFile: true }, signal)
     const grown = await remote.saveText({ ...request, text: 'local\nexpansion', version: small.version }, signal)
     expect(await readFile(path, 'utf8')).toBe('local\r\nexpansion')
     const expanded = await remote.readText({ ...request, allowLargeFile: true }, signal)
     expect(expanded.version).toBe(grown.version)
+    expect(grown.sizeBytes).toBe(16)
+    expect(expanded.sizeBytes).toBe(16)
+    await expect(remote.readText({ ...request, allowLargeFile: true, maxConfirmedBytes: 11 }, signal))
+      .rejects.toMatchObject({ code: 'user-files/confirmation-required', details: { sizeBytes: 16, thresholdBytes: 11 } })
+    await expect(remote.saveText({ ...request, text: 'small', version: grown.version, allowLargeFile: true, maxConfirmedBytes: 11 }, signal))
+      .rejects.toMatchObject({ code: 'user-files/confirmation-required', details: { sizeBytes: 16, thresholdBytes: 11 } })
+    for (const maxConfirmedBytes of [16, Number.MAX_SAFE_INTEGER]) {
+      expect((await remote.readText({ ...request, allowLargeFile: true, maxConfirmedBytes }, signal)).sizeBytes).toBe(16)
+    }
+    for (const maxConfirmedBytes of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity]) {
+      await expect(remote.readText({ ...request, allowLargeFile: true, maxConfirmedBytes }, signal))
+        .rejects.toMatchObject({ code: 'gateway/bad-request' })
+      await expect(remote.saveText({ ...request, text: 'local', version: grown.version, allowLargeFile: true, maxConfirmedBytes }, signal))
+        .rejects.toMatchObject({ code: 'gateway/bad-request' })
+    }
+    expect(await readFile(path, 'utf8')).toBe('local\r\nexpansion')
+
 
     await expect(remote.readBytes(request, signal)).rejects.toMatchObject({ code: 'user-files/too-large' })
     await expect(remote.readText({ ...request, allowLargeFile: true }, AbortSignal.abort()))

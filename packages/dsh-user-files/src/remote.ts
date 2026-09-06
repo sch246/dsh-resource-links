@@ -116,7 +116,7 @@ export class UserFileRemote extends TypertRemoteService {
   async readText(request: UserFileReadTextRequest, signal: AbortSignal): Promise<UserFileTextDocument> {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
-      return await this.filesystem.readText(path, signal, request.allowLargeFile)
+      return await this.filesystem.readText(path, signal, request.allowLargeFile, request.maxConfirmedBytes)
     })
   }
 
@@ -144,7 +144,7 @@ export class UserFileRemote extends TypertRemoteService {
   async saveText(request: UserFileSaveRequest, signal: AbortSignal): Promise<UserFileSaveResult> {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
-      return await this.filesystem.saveText(path, request.text, request.version, signal, request.allowLargeFile)
+      return await this.filesystem.saveText(path, request.text, request.version, signal, request.allowLargeFile, request.maxConfirmedBytes)
     })
   }
 
@@ -190,6 +190,9 @@ export class UserFileRemote extends TypertRemoteService {
         }, { cause: error })
       }
       if (!(error instanceof UserFileFilesystemError)) throw error
+      if (error.code === 'invalid-request') {
+        throw new RemoteError('gateway/bad-request', error.message, {}, { cause: error })
+      }
       const details = error.code === 'too-large'
         ? {
             path: error.path,

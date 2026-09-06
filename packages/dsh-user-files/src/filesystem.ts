@@ -13,6 +13,7 @@ import type {
 /** Stable user-filesystem failures translated by the Host Remote. */
 export type UserFileFilesystemErrorCode =
   | 'invalid-path'
+  | 'invalid-request'
   | 'not-found'
   | 'not-directory'
   | 'not-file'
@@ -45,7 +46,7 @@ export class UserFileConfirmationRequiredError extends UserFileFilesystemError {
   }
 }
 
-type FileSizePolicy = { readonly kind: 'text'; readonly allowLargeFile: boolean } | { readonly kind: 'bytes' }
+type FileSizePolicy = { readonly kind: 'text'; readonly thresholdBytes: number } | { readonly kind: 'bytes' }
 
 interface ExactStat {
   readonly dev: number
@@ -227,10 +228,11 @@ export class UserFileFilesystem {
   /**
    * Load complete UTF-8 text and its exact revision; unconfirmed oversized files fail after stat and before content reads.
    * @param path File to load. @param signal Request cancellation. @param allowLargeFile Explicit confirmation for this read.
-   * @returns Canonical LF text with an opaque guarded-save revision.
+   * @param maxConfirmedBytes Optional inclusive ceiling for existing disk content; must be a positive safe integer.
+   * @returns Canonical LF text, exact disk bytes and an opaque guarded-save revision.
    */
-  async readText(path: string, signal: AbortSignal, allowLargeFile = false): Promise<UserFileTextDocument> {
-    const result = await this.#readFileBytes(path, signal, { kind: 'text', allowLargeFile })
+  async readText(path: string, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFileTextDocument> {
+    const result = await this.#readFileBytes(path, signal, this.#textPolicy(path, allowLargeFile, maxConfirmedBytes))
     let decoded: string
     if (result.bytes.includes(0)) {
       throw new UserFileFilesystemError('not-text', result.path, `path "${result.path}" contains NUL bytes`)
@@ -242,7 +244,7 @@ export class UserFileFilesystem {
     }
     const metadata = eolMetadata(decoded)
     const payload: RevisionPayload = { ...result.payload, ...metadata }
-    return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload) }
+    return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload), sizeBytes: result.payload.stat.size }
   }
 
   /** Read complete bounded bytes without applying text validation or normalization. */
@@ -255,7 +257,8 @@ export class UserFileFilesystem {
    * Atomically replace text after the last exact revision check; existing disk content requires confirmation above the threshold; local replacement text has no size limit.
    * @param path File to replace. @param text Canonical LF text. @param version Loaded revision. @param signal Request cancellation.
    * @param allowLargeFile Explicit confirmation for this save.
-   * @returns The published revision.
+   * @param maxConfirmedBytes Optional inclusive ceiling for existing disk content; must be a positive safe integer.
+   * @returns The published revision and exact disk byte count.
    */
   async saveText(
     path: string,
@@ -263,12 +266,13 @@ export class UserFileFilesystem {
     version: UserFileRevision,
     signal: AbortSignal,
     allowLargeFile = false,
+    maxConfirmedBytes?: number,
   ): Promise<UserFileSaveResult> {
     return await this.#publish(
       path,
       version,
       signal,
-      { kind: 'text', allowLargeFile },
+      this.#textPolicy(path, allowLargeFile, maxConfirmedBytes),
       expected => new TextEncoder().encode(restoreEol(text, expected)),
       saved => {
         const savedText = new TextDecoder('utf-8', { fatal: true }).decode(saved.bytes)
@@ -337,9 +341,9 @@ export class UserFileFilesystem {
         staged = false
         // Publication is terminal: cancellation after rename must not report that the save did not happen.
         // Published text is already supplied by the caller and needs no additional loading confirmation.
-        const publishedPolicy: FileSizePolicy = policy.kind === 'text' ? { kind: 'text', allowLargeFile: true } : policy
+        const publishedPolicy: FileSizePolicy = policy.kind === 'text' ? { kind: 'text', thresholdBytes: Infinity } : policy
         const saved = await this.#readFileBytes(canonical, new AbortController().signal, publishedPolicy)
-        return { version: encodeRevision(revisionOf(saved)) }
+        return { version: encodeRevision(revisionOf(saved)), sizeBytes: saved.payload.stat.size }
       } catch (error: unknown) {
         throw mapNodeError(error, canonical)
       } finally {
@@ -350,10 +354,18 @@ export class UserFileFilesystem {
     })
   }
 
+  #textPolicy(path: string, allowLargeFile: boolean, maxConfirmedBytes: number | undefined): FileSizePolicy {
+    if (maxConfirmedBytes !== undefined && (!Number.isSafeInteger(maxConfirmedBytes) || maxConfirmedBytes <= 0)) {
+      throw new UserFileFilesystemError('invalid-request', path, 'maxConfirmedBytes must be a positive safe integer')
+    }
+    const automaticThreshold = allowLargeFile ? Infinity : this.#maxTextReadBytes
+    return { kind: 'text', thresholdBytes: Math.min(automaticThreshold, maxConfirmedBytes ?? Infinity) }
+  }
+
   #checkSize(path: string, sizeBytes: number, policy: FileSizePolicy): void {
     if (policy.kind === 'text') {
-      if (!policy.allowLargeFile && sizeBytes > this.#maxTextReadBytes) {
-        throw new UserFileConfirmationRequiredError(path, sizeBytes, this.#maxTextReadBytes)
+      if (sizeBytes > policy.thresholdBytes) {
+        throw new UserFileConfirmationRequiredError(path, sizeBytes, policy.thresholdBytes)
       }
     } else if (sizeBytes > this.#maxByteReadBytes) {
       throw new UserFileFilesystemError('too-large', path, `path "${path}" exceeds the configured resource limit`)

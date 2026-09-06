@@ -16,6 +16,8 @@ export interface UserFilePathRequest {
 export interface UserFileReadTextRequest extends UserFilePathRequest {
   /** True only after the user confirms large-file access; applies to this request alone. */
   readonly allowLargeFile?: boolean
+  /** Inclusive existing-file ceiling, as a positive safe integer; omission leaves confirmed reads unlimited. */
+  readonly maxConfirmedBytes?: number
 }
 
 /** Existing text file size requiring explicit user confirmation. */
@@ -58,6 +60,8 @@ export interface UserFileTextDocument {
   readonly path: string
   readonly text: string
   readonly version: UserFileRevision
+  /** Exact disk byte count before EOL normalization. */
+  readonly sizeBytes: number
 }
 
 /** Exact bounded bytes encoded for JSON transport with their opaque content revision. */
@@ -80,7 +84,11 @@ export interface UserFileSaveRequest extends UserFileReadTextRequest {
 }
 
 /** Opaque revision after a successful replacement. */
-export interface UserFileSaveResult { readonly version: UserFileRevision }
+export interface UserFileSaveResult {
+  readonly version: UserFileRevision
+  /** Exact published disk bytes, supplied by this provider for text and byte saves. */
+  readonly sizeBytes?: number
+}
 
 /** Validated deployment policy delivered by the Host metadata Remote. */
 export interface UserFileMetadata {

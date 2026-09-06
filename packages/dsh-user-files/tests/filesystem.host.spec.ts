@@ -29,6 +29,7 @@ describe('UserFileFilesystem', () => {
     await writeFile(crlf, 'one\r\ntwo\r\n')
     const loaded = await filesystem.readText(crlf, new AbortController().signal)
     expect(loaded.text).toBe('one\ntwo\n')
+    expect(loaded.sizeBytes).toBe(10)
     await filesystem.saveText(crlf, loaded.text, loaded.version, new AbortController().signal)
     expect(await readFile(crlf, 'utf8')).toBe('one\r\ntwo\r\n')
 
@@ -84,6 +85,87 @@ describe('UserFileFilesystem', () => {
     expect(await readFile(path, 'utf8')).toBe('x'.repeat(1025))
   })
 
+  it('requires confirmation before reading disk content that grew beyond a prior approval ceiling', async () => {
+    const path = join(root, 'growing.txt')
+    const signal = new AbortController().signal
+    await writeFile(path, 'x'.repeat(2048))
+    const loaded = await filesystem.readText(path, signal, true, 2048)
+    expect(loaded.sizeBytes).toBe(2048)
+    await writeFile(path, 'x'.repeat(2049))
+    const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const handle = await original.open(path, 'r')
+    const reads = vi.spyOn(handle, 'readFile')
+    const closes = vi.spyOn(handle, 'close')
+    vi.mocked(open).mockResolvedValueOnce(handle)
+    await expect(filesystem.readText(path, signal, true, 2048)).rejects.toMatchObject({
+      code: 'confirmation-required', sizeBytes: 2049, thresholdBytes: 2048,
+    })
+    expect(reads).not.toHaveBeenCalled()
+    expect(closes).toHaveBeenCalledOnce()
+    vi.mocked(open).mockClear()
+    await expect(filesystem.saveText(path, 'local', loaded.version, signal, true, 2048)).rejects.toMatchObject({
+      code: 'confirmation-required', sizeBytes: 2049, thresholdBytes: 2048,
+    })
+    expect(open).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual(['growing.txt'])
+    expect((await filesystem.readText(path, signal, true)).sizeBytes).toBe(2049)
+  })
+
+  it('checks the approval ceiling again before the save revision read after staging', async () => {
+    const path = join(root, 'revision-growth.txt')
+    const signal = new AbortController().signal
+    await writeFile(path, 'x'.repeat(2048))
+    const loaded = await filesystem.readText(path, signal, true, 2048)
+    const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const reads = vi.fn()
+    vi.mocked(open).mockImplementation(async (...args) => {
+      const handle = await original.open(...args)
+      if (args[1] === 'wx') {
+        const sync = handle.sync.bind(handle)
+        vi.spyOn(handle, 'sync').mockImplementation(async () => {
+          await sync()
+          await writeFile(path, 'x'.repeat(2049))
+        })
+      } else {
+        vi.spyOn(handle, 'readFile').mockImplementation(reads)
+      }
+      return handle
+    })
+    await expect(filesystem.saveText(path, 'replacement', loaded.version, signal, true, 2048))
+      .rejects.toMatchObject({ code: 'confirmation-required', sizeBytes: 2049, thresholdBytes: 2048 })
+    expect(reads).not.toHaveBeenCalled()
+    expect(await readFile(path, 'utf8')).toBe('x'.repeat(2049))
+    expect(await readdir(root)).toEqual(['revision-growth.txt'])
+  })
+
+  it('uses the lower of the configured threshold and request ceiling without approval', async () => {
+    const path = join(root, 'lower.txt')
+    const signal = new AbortController().signal
+    await writeFile(path, 'x'.repeat(512))
+    expect((await filesystem.readText(path, signal, false, 512)).sizeBytes).toBe(512)
+    await writeFile(path, 'x'.repeat(513))
+    await expect(filesystem.readText(path, signal, false, 512)).rejects.toMatchObject({
+      code: 'confirmation-required', sizeBytes: 513, thresholdBytes: 512,
+    })
+    await writeFile(path, 'x'.repeat(1025))
+    for (const approval of [false, undefined]) {
+      await expect(filesystem.readText(path, signal, approval, 2048)).rejects.toMatchObject({
+        code: 'confirmation-required', sizeBytes: 1025, thresholdBytes: 1024,
+      })
+    }
+  })
+
+  it('rejects invalid confirmation ceilings before direct text reads or saves access the file', async () => {
+    const path = join(root, 'absent.txt')
+    const signal = new AbortController().signal
+    for (const ceiling of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity]) {
+      await expectCode(filesystem.readText(path, signal, true, ceiling), 'invalid-request')
+      await expectCode(filesystem.saveText(path, 'text', '', signal, true, ceiling), 'invalid-request')
+    }
+    expect(open).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual([])
+  })
+
   it('accepts the threshold inclusively and saves larger local edits without confirmation', async () => {
     const path = join(root, 'threshold.txt')
     await writeFile(path, 'x'.repeat(1022) + '\r\n')
@@ -92,10 +174,11 @@ describe('UserFileFilesystem', () => {
     await filesystem.saveText(path, loaded.text, loaded.version, signal)
     const current = await filesystem.readText(path, signal)
     const replacement = 'é\n'.repeat(2048)
-    const saved = await filesystem.saveText(path, replacement, current.version, signal)
+    const saved = await filesystem.saveText(path, replacement, current.version, signal, false, 1024)
+    expect(saved.sizeBytes).toBe(8192)
     expect(await readFile(path, 'utf8')).toBe('é\r\n'.repeat(2048))
     const published = await filesystem.readText(path, signal, true)
-    expect(published).toMatchObject({ text: replacement, version: saved.version })
+    expect(published).toMatchObject({ text: replacement, version: saved.version, sizeBytes: 8192 })
     expect(saved.version).not.toBe(current.version)
     await expectCode(filesystem.readText(path, signal), 'confirmation-required')
     await filesystem.saveText(path, 'done\n', saved.version, signal, true)
@@ -149,6 +232,7 @@ describe('UserFileFilesystem', () => {
     })
     const saved = await filesystem.saveText(path, 'after'.repeat(1024), loaded.version, controller.signal, true)
     expect(controller.signal.aborted).toBe(true)
+    expect(saved.sizeBytes).toBe(5120)
     expect(saved.version).toBe((await filesystem.readText(path, new AbortController().signal, true)).version)
     expect(await readFile(path, 'utf8')).toBe('after'.repeat(1024))
   })
@@ -157,7 +241,8 @@ describe('UserFileFilesystem', () => {
     const path = join(root, 'bytes.bin')
     await writeFile(path, Uint8Array.of(1, 2, 3))
     const loaded = await filesystem.readBytes(path, new AbortController().signal)
-    await filesystem.saveBytes(path, Uint8Array.of(4, 0, 5), loaded.version, new AbortController().signal)
+    const saved = await filesystem.saveBytes(path, Uint8Array.of(4, 0, 5), loaded.version, new AbortController().signal)
+    expect(saved.sizeBytes).toBe(3)
     expect(new Uint8Array(await readFile(path))).toEqual(Uint8Array.of(4, 0, 5))
 
     const stale = await filesystem.readBytes(path, new AbortController().signal)
