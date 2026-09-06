@@ -1,0 +1,9 @@
+# Shared user-files activation
+
+The user authorized direct application of the decoupling result on September 7, 2026, followed by review of separate Claude branches. The managed Web profile now resolves this shared provider once, with Links enabled to preserve the prior installation. Viewer owns resource polling and manager owns directory polling; the effective read limits and opening policy were preserved in complete configuration rows.
+
+A private Home reproduced the installed package set and patch inputs. Source launch required an explicit TSX project locator from the empty probe workspace. With that environment corrected, private and live browser cold loads reported no page, console or failed-request errors. All five workbench packages had one boot entry and served Client assets. Supported plugin transactions reconciled package resolution, lockfile and Bundle membership; the old resource-links package and row were removed. The managed service became active with zero automatic restarts. These observations establish installation and startup, not complete interactive acceptance.
+
+The Host incremental patch preserved all unrelated live changes. Before hashes and exact combined-patch reversal were checked. Prior Links and viewer receipts remain archived in the Host Git directory under `dsh-decoupling-receipts-2026-09-07`; the new `dsh-user-files.patch-state` records the attributed transfer. Sidebar and skill-manager Typert support remain separately owned. No new accepted realization lock was created.
+
+Machine-local rollback files, complete private before/after configurations, source/artifact hashes and command evidence are retained under `/root/dsh-decoupling-apply`; `MIGRATION-APPLIED.md` identifies active package paths and transfer details. The feature source revisions before Claude integration are sidebar `d84f096`, shared provider `b7c23c3`, viewer `7dc2aa3`, manager `313d051`.

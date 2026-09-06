@@ -1,6 +1,6 @@
 # Execution log
 
-Current deployment: [authorized managed activation](logs/2026-09-05-managed-activation.md). Earlier candidate and private-probe entries below are historical evidence.
+Current deployment: [shared user-files activation](logs/2026-09-07-shared-files-activation.md). Earlier candidate, private-probe and resource-links activation entries below are historical evidence.
 
 ## 2026-09-05 candidate implementation
 
