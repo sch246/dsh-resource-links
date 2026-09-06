@@ -129,6 +129,12 @@ it('transports typed large-file confirmation details and explicit read/save appr
     const saved = await remote.saveText({ ...request, text: 'large\nedit', version: loaded.version, allowLargeFile: true }, signal)
     expect(saved.version).not.toBe(loaded.version)
     expect(await readFile(path, 'utf8')).toBe('large\r\nedit')
+    const small = await remote.saveText({ ...request, text: 'a\n', version: saved.version, allowLargeFile: true }, signal)
+    const grown = await remote.saveText({ ...request, text: 'local\nexpansion', version: small.version }, signal)
+    expect(await readFile(path, 'utf8')).toBe('local\r\nexpansion')
+    const expanded = await remote.readText({ ...request, allowLargeFile: true }, signal)
+    expect(expanded.version).toBe(grown.version)
+
     await expect(remote.readBytes(request, signal)).rejects.toMatchObject({ code: 'user-files/too-large' })
     await expect(remote.readText({ ...request, allowLargeFile: true }, AbortSignal.abort()))
       .rejects.toMatchObject({ code: 'gateway/cancelled' })

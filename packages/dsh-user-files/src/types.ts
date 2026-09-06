@@ -18,7 +18,7 @@ export interface UserFileReadTextRequest extends UserFilePathRequest {
   readonly allowLargeFile?: boolean
 }
 
-/** File or encoded replacement size requiring explicit user confirmation. */
+/** Existing text file size requiring explicit user confirmation. */
 export interface UserFileConfirmationRequiredDetails {
   readonly path: string
   readonly sizeBytes: number
@@ -27,7 +27,7 @@ export interface UserFileConfirmationRequiredDetails {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
-    /** The text file or encoded replacement needs explicit large-file confirmation. */
+    /** Loading the existing text file needs explicit large-file confirmation. */
     'user-files/confirmation-required': UserFileConfirmationRequiredDetails
   }
 }

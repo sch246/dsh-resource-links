@@ -84,17 +84,23 @@ describe('UserFileFilesystem', () => {
     expect(await readFile(path, 'utf8')).toBe('x'.repeat(1025))
   })
 
-  it('accepts the threshold inclusively and requests confirmation for encoded replacement bytes', async () => {
+  it('accepts the threshold inclusively and saves larger local edits without confirmation', async () => {
     const path = join(root, 'threshold.txt')
-    await writeFile(path, 'x'.repeat(1024))
-    const loaded = await filesystem.readText(path, new AbortController().signal, false)
-    await filesystem.saveText(path, loaded.text, loaded.version, new AbortController().signal)
-    const current = await filesystem.readText(path, new AbortController().signal)
-    vi.mocked(open).mockClear()
-    await expect(filesystem.saveText(path, 'é'.repeat(513), current.version, new AbortController().signal))
-      .rejects.toMatchObject({ code: 'confirmation-required', sizeBytes: 1026, thresholdBytes: 1024 })
-    expect(open).not.toHaveBeenCalled()
-    expect(await readFile(path, 'utf8')).toBe(loaded.text)
+    await writeFile(path, 'x'.repeat(1022) + '\r\n')
+    const signal = new AbortController().signal
+    const loaded = await filesystem.readText(path, signal, false)
+    await filesystem.saveText(path, loaded.text, loaded.version, signal)
+    const current = await filesystem.readText(path, signal)
+    const replacement = 'é\n'.repeat(2048)
+    const saved = await filesystem.saveText(path, replacement, current.version, signal)
+    expect(await readFile(path, 'utf8')).toBe('é\r\n'.repeat(2048))
+    const published = await filesystem.readText(path, signal, true)
+    expect(published).toMatchObject({ text: replacement, version: saved.version })
+    expect(saved.version).not.toBe(current.version)
+    await expectCode(filesystem.readText(path, signal), 'confirmation-required')
+    await filesystem.saveText(path, 'done\n', saved.version, signal, true)
+    expect(await readFile(path, 'utf8')).toBe('done\r\n')
+    expect(await readdir(root)).toEqual(['threshold.txt'])
   })
 
   it('confirms large text reads and saves without a byte cap while preserving EOL and revision guards', async () => {

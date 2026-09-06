@@ -39,7 +39,7 @@ export class UserFileFilesystemError extends Error {
 
 /** A text operation needs explicit user confirmation before exceeding its size threshold. */
 export class UserFileConfirmationRequiredError extends UserFileFilesystemError {
-  /** @param path Addressed file. @param sizeBytes Actual file or encoded replacement bytes. @param thresholdBytes Inclusive automatic-access threshold. */
+  /** @param path Addressed file. @param sizeBytes Existing file bytes. @param thresholdBytes Inclusive automatic-access threshold. */
   constructor(path: string, readonly sizeBytes: number, readonly thresholdBytes: number) {
     super('confirmation-required', path, `path "${path}" is ${sizeBytes} bytes; confirm access above ${thresholdBytes} bytes`)
   }
@@ -252,7 +252,7 @@ export class UserFileFilesystem {
   }
 
   /**
-   * Atomically replace text after the last exact revision check; existing and encoded replacement sizes require confirmation above the threshold.
+   * Atomically replace text after the last exact revision check; existing disk content requires confirmation above the threshold; local replacement text has no size limit.
    * @param path File to replace. @param text Canonical LF text. @param version Loaded revision. @param signal Request cancellation.
    * @param allowLargeFile Explicit confirmation for this save.
    * @returns The published revision.
@@ -315,7 +315,7 @@ export class UserFileFilesystem {
         throw new UserFileFilesystemError('stale-version', canonical, `filesystem revision belongs to "${expected.path}"`)
       }
       const bytes = bytesOf(expected)
-      this.#checkSize(canonical, bytes.byteLength, policy)
+      if (policy.kind === 'bytes') this.#checkSize(canonical, bytes.byteLength, policy)
       const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
       let staged = false
       try {
@@ -336,7 +336,9 @@ export class UserFileFilesystem {
         await rename(stage, canonical)
         staged = false
         // Publication is terminal: cancellation after rename must not report that the save did not happen.
-        const saved = await this.#readFileBytes(canonical, new AbortController().signal, policy)
+        // Published text is already supplied by the caller and needs no additional loading confirmation.
+        const publishedPolicy: FileSizePolicy = policy.kind === 'text' ? { kind: 'text', allowLargeFile: true } : policy
+        const saved = await this.#readFileBytes(canonical, new AbortController().signal, publishedPolicy)
         return { version: encodeRevision(revisionOf(saved)) }
       } catch (error: unknown) {
         throw mapNodeError(error, canonical)
