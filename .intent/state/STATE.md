@@ -12,6 +12,8 @@ Explicit `dsh-session:` references navigate only to known sessions without files
 
 All file clicks use the common Host opening request. Viewer can handle supported files, manager can handle directories, and absent handlers delegate to the native opener on the service-process machine. A handler that accepts the request preserves its error rather than invoking a fallback. Carry preview, pin and placement intent through this request without exposing viewer descriptors or manager launcher ids to Links. Without either UI feature, confirmed links still offer system opening and report unavailable native opening visibly.
 
+Large text files require an explicit confirmation opportunity rather than a permanent refusal. Shared file access checks the existing file size before reading content and reports the actual size and configured threshold when confirmation is needed. A confirmed text read or save may exceed that threshold; byte operations retain their configured bound. Consumers carry explicit confirmation on each related text request and preserve cancellation and guarded-save behavior. The [package reference](../../packages/dsh-user-files/README.md) owns the request flag and typed error fields.
+
 ## Installation map
 
 ### Select capabilities and configuration
@@ -26,6 +28,7 @@ All file clicks use the common Host opening request. Viewer can handle supported
 
 | Resource | Use when adapting the selected implementation |
 | --- | --- |
+| [Filesystem](../../packages/dsh-user-files/src/filesystem.ts), [Remote](../../packages/dsh-user-files/src/remote.ts) and [request types](../../packages/dsh-user-files/src/types.ts) | Locate confirmation thresholds, typed errors, exact revisions and atomic text/byte saves. |
 | [Parser](../../packages/dsh-user-files/src/client/parse.ts) and [runtime](../../packages/dsh-user-files/src/client/runtime.ts) | Candidate syntax, Session navigation, bounded metadata batching/cache and fresh resolution on click. Preserve these behaviors when placing Links in the shared provider. |
 | [Client registration](../../packages/dsh-user-files/src/client/index.ts) | Locate dependency injection, the text-link provider and opening listener. Compose only capabilities needed by Links; route opens through Host APIs. |
 | [Manifest](../../packages/dsh-user-files/package.json) and [Bundle](../../packages/dsh-user-files/cordis.patch.yml) | Locate package exports, Client entries and configuration. Establish one owner for each graph row and namespace in the actual composition. |

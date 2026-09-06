@@ -102,3 +102,40 @@ it('resolves bounded metadata batches independently without reading content and 
     await rm(root, { recursive: true })
   }
 })
+
+it('transports typed large-file confirmation details and explicit read/save approval through the service', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-user-files-confirmation-'))
+  const ctx = new Context()
+  const fiber = ctx.plugin({ apply: (scope: Context) => {
+    new UserFileRemote(scope, new UserFileFilesystem(4, 8), {
+      ...Config({}), maxTextReadBytes: 4, maxByteReadBytes: 8,
+    })
+  } })
+  try {
+    const path = join(root, 'large.txt')
+    await writeFile(path, 'large\r\ntext')
+    ctx.provide('sessions', { get: () => ({ header: { cwd: root } }) } as never)
+    await fiber.await()
+    const remote = ctx.get('userFiles') as UserFileRemote
+    const request = { sessionId: 'confirmation-fixture' as SessionId, path: 'large.txt' }
+    const signal = new AbortController().signal
+    await expect(remote.readText(request, signal)).rejects.toMatchObject({
+      code: 'user-files/confirmation-required', details: { path, sizeBytes: 11, thresholdBytes: 4 },
+    })
+    const loaded = await remote.readText({ ...request, allowLargeFile: true }, signal)
+    expect(loaded.text).toBe('large\ntext')
+    await expect(remote.saveText({ ...request, text: loaded.text, version: loaded.version }, signal))
+      .rejects.toMatchObject({ code: 'user-files/confirmation-required', details: { path, sizeBytes: 11, thresholdBytes: 4 } })
+    const saved = await remote.saveText({ ...request, text: 'large\nedit', version: loaded.version, allowLargeFile: true }, signal)
+    expect(saved.version).not.toBe(loaded.version)
+    expect(await readFile(path, 'utf8')).toBe('large\r\nedit')
+    await expect(remote.readBytes(request, signal)).rejects.toMatchObject({ code: 'user-files/too-large' })
+    await expect(remote.readText({ ...request, allowLargeFile: true }, AbortSignal.abort()))
+      .rejects.toMatchObject({ code: 'gateway/cancelled' })
+    await expect(remote.readText({ ...request, path: 'missing', allowLargeFile: true }, signal))
+      .rejects.toMatchObject({ code: 'user-files/not-found' })
+  } finally {
+    await fiber.dispose()
+    await rm(root, { recursive: true })
+  }
+})

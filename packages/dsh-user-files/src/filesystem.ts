@@ -18,6 +18,7 @@ export type UserFileFilesystemErrorCode =
   | 'not-file'
   | 'not-text'
   | 'too-large'
+  | 'confirmation-required'
   | 'already-exists'
   | 'stale-version'
   | 'unavailable'
@@ -35,6 +36,16 @@ export class UserFileFilesystemError extends Error {
     this.name = 'UserFileFilesystemError'
   }
 }
+
+/** A text operation needs explicit user confirmation before exceeding its size threshold. */
+export class UserFileConfirmationRequiredError extends UserFileFilesystemError {
+  /** @param path Addressed file. @param sizeBytes Actual file or encoded replacement bytes. @param thresholdBytes Inclusive automatic-access threshold. */
+  constructor(path: string, readonly sizeBytes: number, readonly thresholdBytes: number) {
+    super('confirmation-required', path, `path "${path}" is ${sizeBytes} bytes; confirm access above ${thresholdBytes} bytes`)
+  }
+}
+
+type FileSizePolicy = { readonly kind: 'text'; readonly allowLargeFile: boolean } | { readonly kind: 'bytes' }
 
 interface ExactStat {
   readonly dev: number
@@ -195,7 +206,7 @@ export class UserFileFilesystem {
   readonly #maxByteReadBytes: number
   #mutationTail: Promise<void> = Promise.resolve()
 
-  /** @param maxTextReadBytes Inclusive text bound. @param maxByteReadBytes Inclusive byte bound. */
+  /** @param maxTextReadBytes Inclusive text confirmation threshold. @param maxByteReadBytes Inclusive byte bound. */
   constructor(maxTextReadBytes: number, maxByteReadBytes: number) {
     this.#maxTextReadBytes = maxTextReadBytes
     this.#maxByteReadBytes = maxByteReadBytes
@@ -213,9 +224,13 @@ export class UserFileFilesystem {
     }
   }
 
-  /** Load a complete UTF-8 regular file as canonical LF text and an exact opaque revision. */
-  async readText(path: string, signal: AbortSignal): Promise<UserFileTextDocument> {
-    const result = await this.#readFileBytes(path, signal, this.#maxTextReadBytes)
+  /**
+   * Load complete UTF-8 text and its exact revision; unconfirmed oversized files fail after stat and before content reads.
+   * @param path File to load. @param signal Request cancellation. @param allowLargeFile Explicit confirmation for this read.
+   * @returns Canonical LF text with an opaque guarded-save revision.
+   */
+  async readText(path: string, signal: AbortSignal, allowLargeFile = false): Promise<UserFileTextDocument> {
+    const result = await this.#readFileBytes(path, signal, { kind: 'text', allowLargeFile })
     let decoded: string
     if (result.bytes.includes(0)) {
       throw new UserFileFilesystemError('not-text', result.path, `path "${result.path}" contains NUL bytes`)
@@ -232,22 +247,28 @@ export class UserFileFilesystem {
 
   /** Read complete bounded bytes without applying text validation or normalization. */
   async readBytes(path: string, signal: AbortSignal): Promise<UserFileByteContent> {
-    const result = await this.#readFileBytes(path, signal, this.#maxByteReadBytes)
+    const result = await this.#readFileBytes(path, signal, { kind: 'bytes' })
     return { path: result.path, bytes: new Uint8Array(result.bytes), version: encodeRevision(result.payload) }
   }
 
-  /** Stage and atomically replace text after the last exact revision check. */
+  /**
+   * Atomically replace text after the last exact revision check; existing and encoded replacement sizes require confirmation above the threshold.
+   * @param path File to replace. @param text Canonical LF text. @param version Loaded revision. @param signal Request cancellation.
+   * @param allowLargeFile Explicit confirmation for this save.
+   * @returns The published revision.
+   */
   async saveText(
     path: string,
     text: string,
     version: UserFileRevision,
     signal: AbortSignal,
+    allowLargeFile = false,
   ): Promise<UserFileSaveResult> {
     return await this.#publish(
       path,
       version,
       signal,
-      this.#maxTextReadBytes,
+      { kind: 'text', allowLargeFile },
       expected => new TextEncoder().encode(restoreEol(text, expected)),
       saved => {
         const savedText = new TextDecoder('utf-8', { fatal: true }).decode(saved.bytes)
@@ -267,7 +288,7 @@ export class UserFileFilesystem {
       path,
       version,
       signal,
-      this.#maxByteReadBytes,
+      { kind: 'bytes' },
       () => bytes,
       saved => saved.payload,
     )
@@ -277,21 +298,24 @@ export class UserFileFilesystem {
     path: string,
     version: UserFileRevision,
     signal: AbortSignal,
-    maxBytes: number,
+    policy: FileSizePolicy,
     bytesOf: (expected: RevisionPayload) => Uint8Array,
     revisionOf: (saved: ReadBytesResult) => RevisionPayload,
   ): Promise<UserFileSaveResult> {
     return await this.mutate(signal, async () => {
-      const canonical = (await this.resolveExisting(path)).path
+      const metadata = await this.resolveExisting(path)
+      const canonical = metadata.path
+      if (metadata.kind !== 'file') {
+        throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+      }
+      this.#checkSize(canonical, metadata.size!, policy)
       signal.throwIfAborted()
       const expected = parseRevision(version, canonical)
       if (expected.path !== canonical) {
         throw new UserFileFilesystemError('stale-version', canonical, `filesystem revision belongs to "${expected.path}"`)
       }
       const bytes = bytesOf(expected)
-      if (bytes.byteLength > maxBytes) {
-        throw new UserFileFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured resource limit`)
-      }
+      this.#checkSize(canonical, bytes.byteLength, policy)
       const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
       let staged = false
       try {
@@ -304,7 +328,7 @@ export class UserFileFilesystem {
         } finally {
           await handle.close()
         }
-        const current = await this.#readFileBytes(canonical, signal, maxBytes)
+        const current = await this.#readFileBytes(canonical, signal, policy)
         if (!sameStat(current.payload.stat, expected.stat) || current.payload.sha256 !== expected.sha256) {
           throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed after it was loaded`)
         }
@@ -312,7 +336,7 @@ export class UserFileFilesystem {
         await rename(stage, canonical)
         staged = false
         // Publication is terminal: cancellation after rename must not report that the save did not happen.
-        const saved = await this.#readFileBytes(canonical, new AbortController().signal, maxBytes)
+        const saved = await this.#readFileBytes(canonical, new AbortController().signal, policy)
         return { version: encodeRevision(revisionOf(saved)) }
       } catch (error: unknown) {
         throw mapNodeError(error, canonical)
@@ -324,7 +348,17 @@ export class UserFileFilesystem {
     })
   }
 
-  async #readFileBytes(path: string, signal: AbortSignal, maxBytes: number): Promise<ReadBytesResult> {
+  #checkSize(path: string, sizeBytes: number, policy: FileSizePolicy): void {
+    if (policy.kind === 'text') {
+      if (!policy.allowLargeFile && sizeBytes > this.#maxTextReadBytes) {
+        throw new UserFileConfirmationRequiredError(path, sizeBytes, this.#maxTextReadBytes)
+      }
+    } else if (sizeBytes > this.#maxByteReadBytes) {
+      throw new UserFileFilesystemError('too-large', path, `path "${path}" exceeds the configured resource limit`)
+    }
+  }
+
+  async #readFileBytes(path: string, signal: AbortSignal, policy: FileSizePolicy): Promise<ReadBytesResult> {
     signal.throwIfAborted()
     const input = normalizedAbsolute(path)
     try {
@@ -335,9 +369,7 @@ export class UserFileFilesystem {
         if (!beforeValue.isFile()) {
           throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
         }
-        if (beforeValue.size > maxBytes) {
-          throw new UserFileFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured resource limit`)
-        }
+        this.#checkSize(canonical, beforeValue.size, policy)
         signal.throwIfAborted()
         const bytes = await handle.readFile()
         signal.throwIfAborted()

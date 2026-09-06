@@ -1,6 +1,6 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** Opaque revision produced by an exact bounded content and metadata read. */
+/** Opaque revision produced by an exact content and metadata read. */
 export type UserFileRevision = string
 
 /** File kinds shown in the browser tree after following a symbolic link when possible. */
@@ -10,6 +10,26 @@ export type UserFileEntryKind = 'file' | 'directory' | 'other' | 'missing'
 export interface UserFilePathRequest {
   readonly sessionId: SessionId
   readonly path: string
+}
+
+/** Text read with explicit permission to exceed the configured confirmation threshold. */
+export interface UserFileReadTextRequest extends UserFilePathRequest {
+  /** True only after the user confirms large-file access; applies to this request alone. */
+  readonly allowLargeFile?: boolean
+}
+
+/** File or encoded replacement size requiring explicit user confirmation. */
+export interface UserFileConfirmationRequiredDetails {
+  readonly path: string
+  readonly sizeBytes: number
+  readonly thresholdBytes: number
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** The text file or encoded replacement needs explicit large-file confirmation. */
+    'user-files/confirmation-required': UserFileConfirmationRequiredDetails
+  }
 }
 
 /** Metadata-only path batch, bounded by maxResolveBatchSize. */
@@ -54,7 +74,7 @@ export interface UserFileSaveBytesRequest extends UserFilePathRequest {
 }
 
 /** Guarded text-save request. */
-export interface UserFileSaveRequest extends UserFilePathRequest {
+export interface UserFileSaveRequest extends UserFileReadTextRequest {
   readonly text: string
   readonly version: UserFileRevision
 }
@@ -65,6 +85,7 @@ export interface UserFileSaveResult { readonly version: UserFileRevision }
 /** Validated deployment policy delivered by the Host metadata Remote. */
 export interface UserFileMetadata {
   readonly maxResolveBatchSize: number
+  /** Inclusive text size accepted without explicit large-file confirmation. */
   readonly maxTextReadBytes: number
   readonly maxByteReadBytes: number
   /** Enable automatic inline-code discovery. File access remains available. */

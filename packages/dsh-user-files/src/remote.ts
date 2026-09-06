@@ -4,9 +4,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  UserFileFilesystem, UserFileFilesystemError, resolveUserPath,
+  UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
-import type { UserFileMetadata, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFileMetadata, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -24,9 +24,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'user-files/not-directory': { readonly path: string }
     /** The addressed path is not a regular file. */
     'user-files/not-file': { readonly path: string }
-    /** The bounded file is not UTF-8 text. */
+    /** The file is not UTF-8 text. */
     'user-files/not-text': { readonly path: string }
-    /** The file exceeds the configured complete-resource limit. */
+    /** The bytes exceed the configured byte-resource limit. */
     'user-files/too-large': {
       readonly path: string
       readonly maxTextReadBytes: number
@@ -113,10 +113,10 @@ export class UserFileRemote extends TypertRemoteService {
 
   /** Read canonical LF text and its opaque guarded-write revision. */
   @Remote('readText')
-  async readText(request: UserFilePathRequest, signal: AbortSignal): Promise<UserFileTextDocument> {
+  async readText(request: UserFileReadTextRequest, signal: AbortSignal): Promise<UserFileTextDocument> {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
-      return await this.filesystem.readText(path, signal)
+      return await this.filesystem.readText(path, signal, request.allowLargeFile)
     })
   }
 
@@ -144,7 +144,7 @@ export class UserFileRemote extends TypertRemoteService {
   async saveText(request: UserFileSaveRequest, signal: AbortSignal): Promise<UserFileSaveResult> {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
-      return await this.filesystem.saveText(path, request.text, request.version, signal)
+      return await this.filesystem.saveText(path, request.text, request.version, signal, request.allowLargeFile)
     })
   }
 
@@ -184,6 +184,11 @@ export class UserFileRemote extends TypertRemoteService {
       return await operation()
     } catch (error: unknown) {
       if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw cancelled(error)
+      if (error instanceof UserFileConfirmationRequiredError) {
+        throw new RemoteError('user-files/confirmation-required', error.message, {
+          path: error.path, sizeBytes: error.sizeBytes, thresholdBytes: error.thresholdBytes,
+        }, { cause: error })
+      }
       if (!(error instanceof UserFileFilesystemError)) throw error
       const details = error.code === 'too-large'
         ? {

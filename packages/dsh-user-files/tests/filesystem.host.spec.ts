@@ -1,15 +1,25 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UserFileFilesystem, UserFileFilesystemError } from '../src/filesystem.ts'
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, open: vi.fn(original.open), rename: vi.fn(original.rename) }
+})
+
 let root: string
 let filesystem: UserFileFilesystem
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'dsh-user-files-test-'))
   filesystem = new UserFileFilesystem(1024, 4096)
 })
-afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+afterEach(async () => {
+  vi.restoreAllMocks()
+  vi.mocked(open).mockReset()
+  vi.mocked(rename).mockReset()
+  await rm(root, { recursive: true, force: true })
+})
 async function expectCode(operation: Promise<unknown>, code: string): Promise<void> {
   await expect(operation).rejects.toMatchObject({ name: 'UserFileFilesystemError', code })
 }
@@ -35,7 +45,7 @@ describe('UserFileFilesystem', () => {
     expect(await readFile(none, 'utf8')).toBe('no newline')
   })
 
-  it('rejects malformed UTF-8, NUL, oversized and non-regular reads', async () => {
+  it('rejects malformed UTF-8, NUL and non-regular reads and requests confirmation above the text threshold', async () => {
     const invalid = join(root, 'invalid.txt')
     const nul = join(root, 'nul.txt')
     const large = join(root, 'large.txt')
@@ -44,11 +54,97 @@ describe('UserFileFilesystem', () => {
     await writeFile(large, 'x'.repeat(1025))
     await expectCode(filesystem.readText(invalid, new AbortController().signal), 'not-text')
     await expectCode(filesystem.readText(nul, new AbortController().signal), 'not-text')
-    await expectCode(filesystem.readText(large, new AbortController().signal), 'too-large')
+    await expectCode(filesystem.readText(large, new AbortController().signal), 'confirmation-required')
     await expectCode(filesystem.readText(root, new AbortController().signal), 'not-file')
     expect((await filesystem.readBytes(invalid, new AbortController().signal)).bytes).toEqual(Uint8Array.of(0xc3, 0x28))
     expect((await filesystem.readBytes(nul, new AbortController().signal)).bytes).toEqual(Uint8Array.of(97, 0, 98))
     expect((await filesystem.readBytes(large, new AbortController().signal)).bytes).toHaveLength(1025)
+  })
+
+  it('checks file metadata without reading content before requesting confirmation', async () => {
+    const path = join(root, 'large.txt')
+    await writeFile(path, 'x'.repeat(1025))
+    const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const handle = await original.open(path, 'r')
+    const reads = vi.spyOn(handle, 'readFile')
+    const closes = vi.spyOn(handle, 'close')
+    vi.mocked(open).mockResolvedValueOnce(handle)
+    await expect(filesystem.readText(path, new AbortController().signal)).rejects.toMatchObject({
+      code: 'confirmation-required', path, sizeBytes: 1025, thresholdBytes: 1024,
+    })
+    expect(reads).not.toHaveBeenCalled()
+    expect(closes).toHaveBeenCalledOnce()
+
+    const loaded = await filesystem.readText(path, new AbortController().signal, true)
+    vi.mocked(open).mockClear()
+    await expect(filesystem.saveText(path, 'small', loaded.version, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'confirmation-required', sizeBytes: 1025, thresholdBytes: 1024 })
+    expect(open).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual(['large.txt'])
+    expect(await readFile(path, 'utf8')).toBe('x'.repeat(1025))
+  })
+
+  it('accepts the threshold inclusively and requests confirmation for encoded replacement bytes', async () => {
+    const path = join(root, 'threshold.txt')
+    await writeFile(path, 'x'.repeat(1024))
+    const loaded = await filesystem.readText(path, new AbortController().signal, false)
+    await filesystem.saveText(path, loaded.text, loaded.version, new AbortController().signal)
+    const current = await filesystem.readText(path, new AbortController().signal)
+    vi.mocked(open).mockClear()
+    await expect(filesystem.saveText(path, 'é'.repeat(513), current.version, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'confirmation-required', sizeBytes: 1026, thresholdBytes: 1024 })
+    expect(open).not.toHaveBeenCalled()
+    expect(await readFile(path, 'utf8')).toBe(loaded.text)
+  })
+
+  it('confirms large text reads and saves without a byte cap while preserving EOL and revision guards', async () => {
+    const path = join(root, 'confirmed.txt')
+    const original = 'a\r\nb\rc\n'.repeat(1024)
+    await writeFile(path, original)
+    const signal = new AbortController().signal
+    const loaded = await filesystem.readText(path, signal, true)
+    expect(loaded.text).toBe('a\nb\nc\n'.repeat(1024))
+    const saved = await filesystem.saveText(path, loaded.text.replaceAll('a', 'A'), loaded.version, signal, true)
+    expect(await readFile(path, 'utf8')).toBe(original.replaceAll('a', 'A'))
+    expect(saved.version).not.toBe(loaded.version)
+    await expectCode(filesystem.saveText(path, 'stale', loaded.version, signal, true), 'stale-version')
+    const current = await filesystem.readText(path, signal, true)
+    await expectCode(filesystem.saveBytes(path, Uint8Array.of(1), current.version, signal), 'too-large')
+    await expectCode(filesystem.readBytes(path, signal), 'too-large')
+    await expectCode(filesystem.readText(path, signal), 'confirmation-required')
+    await filesystem.saveText(path, 'small', current.version, signal, true)
+    expect((await filesystem.readText(path, signal)).text).toBe('small')
+    const small = await filesystem.readBytes(path, signal)
+    await expectCode(filesystem.saveBytes(path, new Uint8Array(4097), small.version, signal), 'too-large')
+    expect(await readdir(root)).toEqual(['confirmed.txt'])
+  })
+
+  it('retains missing-file and cancellation failures for confirmed reads and saves', async () => {
+    const path = join(root, 'missing.txt')
+    await expectCode(filesystem.readText(path, new AbortController().signal, true), 'not-found')
+    await expectCode(filesystem.saveText(path, 'text', '', new AbortController().signal, true), 'not-found')
+    await writeFile(path, 'x'.repeat(1025))
+    const loaded = await filesystem.readText(path, new AbortController().signal, true)
+    await expect(filesystem.readText(path, AbortSignal.abort(), true)).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(filesystem.saveText(path, 'text', loaded.version, AbortSignal.abort(), true))
+      .rejects.toMatchObject({ name: 'AbortError' })
+    expect(await readFile(path, 'utf8')).toBe(loaded.text)
+  })
+
+  it('returns the committed large-text revision when cancellation arrives after rename', async () => {
+    const path = join(root, 'publication.txt')
+    await writeFile(path, 'before'.repeat(1024))
+    const controller = new AbortController()
+    const loaded = await filesystem.readText(path, controller.signal, true)
+    const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    vi.mocked(rename).mockImplementationOnce(async (source, destination) => {
+      await original.rename(source, destination)
+      controller.abort()
+    })
+    const saved = await filesystem.saveText(path, 'after'.repeat(1024), loaded.version, controller.signal, true)
+    expect(controller.signal.aborted).toBe(true)
+    expect(saved.version).toBe((await filesystem.readText(path, new AbortController().signal, true)).version)
+    expect(await readFile(path, 'utf8')).toBe('after'.repeat(1024))
   })
 
   it('guards exact-byte publication with the same serialized stale revision check', async () => {
@@ -93,11 +189,11 @@ describe('UserFileFilesystem', () => {
 
   it('serializes own writes so two saves from one revision cannot both publish', async () => {
     const path = join(root, 'serialized.txt')
-    await writeFile(path, 'base')
-    const loaded = await filesystem.readText(path, new AbortController().signal)
+    await writeFile(path, 'base'.repeat(1024))
+    const loaded = await filesystem.readText(path, new AbortController().signal, true)
     const results = await Promise.allSettled([
-      filesystem.saveText(path, 'first', loaded.version, new AbortController().signal),
-      filesystem.saveText(path, 'second', loaded.version, new AbortController().signal),
+      filesystem.saveText(path, 'first', loaded.version, new AbortController().signal, true),
+      filesystem.saveText(path, 'second', loaded.version, new AbortController().signal, true),
     ])
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
     const failure = results.find(result => result.status === 'rejected') as PromiseRejectedResult

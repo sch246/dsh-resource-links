@@ -2,7 +2,9 @@
 
 One authenticated Node provider serves `ctx.userFiles` and the generated `remote.userFiles` namespace. It requires Session and Remote services, independently of sidebar, viewer and manager. The Client mounts its namespace even when Links is disabled and provides the common Host opening policy. Only `enabled: true` contributes `chatTextLinks`; this package never registers a file-open waterfall listener.
 
-The public `types` export owns `UserFilePathRequest`, `UserFileResolvedPath`, ordered `UserFileResolveManyResult`, text/byte documents and guarded save requests/results. `resolve` and `resolveMany` read metadata only. Session-relative paths use the live Session header or persisted Session metadata, then the service process cwd when the header has none. Absolute paths are not restricted to the workspace. Authenticated UI operations use service-process permissions, independently of agent filesystem or approval policy.
+The public `types` export owns `UserFilePathRequest`, `UserFileResolvedPath`, ordered `UserFileResolveManyResult`, `UserFileReadTextRequest`, text/byte documents and guarded save requests/results. `resolve` and `resolveMany` read metadata only. Session-relative paths use the live Session header or persisted Session metadata, then the service process cwd when the header has none. Absolute paths are not restricted to the workspace. Authenticated UI operations use service-process permissions, independently of agent filesystem or approval policy.
+
+Text reads and saves use `maxTextReadBytes` as an inclusive confirmation threshold. Above it, requests without `allowLargeFile: true` fail with typed Remote error `user-files/confirmation-required` and details `{ path, sizeBytes, thresholdBytes }`. Existing file size is checked from metadata before content is read; saves also check the encoded replacement size before staging. A confirmed request can read or save larger text without a provider size cap. Confirmation applies only to that request, including saves and refresh reads; it does not change byte-operation limits.
 
 Text reads reject malformed UTF-8, NUL bytes and non-regular files, normalize CRLF/CR to LF, and retain the original EOL convention in the opaque revision. Saves preserve terminal-newline presence and existing mixed-EOL positions. Byte reads/saves preserve exact bytes through base64 JSON transport. Text and byte saves plus manager directory mutations enter one provider-owned queue; saves resolve canonical paths inside their transaction, stage beside the target, compare the exact content SHA-256 and stat revision, then rename atomically. Uncooperative external writes between the final check and rename cannot be prevented by ordinary filesystem APIs. Cancellation after successful rename does not report a failed publication.
 
@@ -11,7 +13,7 @@ Text reads reject malformed UTF-8, NUL bytes and non-regular files, normalize CR
 | `enabled` | `false` | Enable automatic inline-code file links. |
 | `openMode` | `preview` | Common opening policy: handlers then native, or `system` to bypass handlers. |
 | `maxResolveBatchSize` | `128` | Inclusive metadata request count. |
-| `maxTextReadBytes` | `1048576` | Inclusive text read/encoded-save bytes. |
+| `maxTextReadBytes` | `1048576` | Inclusive text read/encoded-save bytes accepted without confirmation. |
 | `maxByteReadBytes` | `16777216` | Inclusive byte read/save bytes. |
 | `batchDelayMs` | `10` | Coalescing delay, including zero. |
 | `maxBatchSize` | `128` | Discovery batch count, capped to the provider limit. |
