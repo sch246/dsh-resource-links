@@ -1,19 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { FileManagerResolvedPath } from '@dsh-external/dsh-file-manager/types'
+import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
 import { ResourceLinksRuntime, type Gateway } from '../src/client/runtime.ts'
-import type { ResourceLinksConfig } from '../src/types.ts'
+import type { UserFileMetadata } from '../src/types.ts'
 
 const id = 'session-1' as SessionId
 const second = 'session-2' as SessionId
-const config: ResourceLinksConfig = {
+const config: UserFileMetadata = {
+  enabled: true, maxResolveBatchSize: 128, maxTextReadBytes: 1024, maxByteReadBytes: 4096,
   openMode: 'preview', batchDelayMs: 10, maxBatchSize: 2,
   cacheTtlMs: 100, maxCacheEntries: 2, maxPendingPaths: 4, maxCandidatesPerText: 10,
 }
-const file = (path: string): FileManagerResolvedPath => ({ path, name: path.split('/').at(-1)!, kind: 'file' })
+const file = (path: string): UserFileResolvedPath => ({ path, name: path.split('/').at(-1)!, kind: 'file' })
 const runtimes: ResourceLinksRuntime[] = []
 
-function fixture(overrides: Partial<Gateway> = {}, settings: Partial<ResourceLinksConfig> = {}) {
+function fixture(overrides: Partial<Gateway> = {}, settings: Partial<UserFileMetadata> = {}) {
   let now = 0
   let cwd = '/workspace'
   const gateway: Gateway = {
@@ -21,8 +22,8 @@ function fixture(overrides: Partial<Gateway> = {}, settings: Partial<ResourceLin
     knownSession: session => session === id || session === second,
     resolveMany: vi.fn(async (_session, paths) => paths.map(inputPath => ({ inputPath, ok: true as const, value: file(`/workspace/${inputPath}`) }))),
     resolve: vi.fn(async (_session, path) => file(`/canonical/${path}`)),
-    openResource: vi.fn(async () => {}), openDirectory: vi.fn(async () => {}),
-    openSession: vi.fn(), openSystem: vi.fn(async () => {}), ...overrides,
+    openFile: vi.fn(async () => {}),
+    openSession: vi.fn(), ...overrides,
   }
   const runtime = new ResourceLinksRuntime(gateway, { ...config, ...settings }, () => now)
   runtimes.push(runtime)
@@ -39,29 +40,26 @@ describe('metadata-backed routing', () => {
     const error = { code, message: code }
     const { runtime, gateway } = fixture({ resolve: async () => { throw error } }, { openMode: 'system' })
     await expect(runtime.open(id, '.')).rejects.toBe(error)
-    expect(gateway.openSystem).not.toHaveBeenCalled()
-    expect(gateway.openResource).not.toHaveBeenCalled()
+    expect(gateway.openFile).not.toHaveBeenCalled()
   })
 
-  it('routes files through the generic workbench and directories through the selector', async () => {
+  it('routes files and directories through the common opening request', async () => {
     const { runtime, gateway } = fixture()
     await runtime.open(id, './a.md:12:3')
     expect(gateway.resolve).toHaveBeenCalledWith(id, './a.md', expect.any(AbortSignal))
-    expect(gateway.openResource).toHaveBeenCalledWith({ ref: { sessionId: id, sourceId: 'filesystem', resourceId: '/canonical/./a.md' }, name: 'a.md', kind: 'file' })
+    expect(gateway.openFile).toHaveBeenCalledWith(id, '/canonical/./a.md', expect.any(AbortSignal))
     vi.mocked(gateway.resolve).mockResolvedValue({ path: '/canonical/dir', name: 'dir', kind: 'directory' })
     await runtime.open(id, './dir')
-    expect(gateway.openDirectory).toHaveBeenCalledWith(id, '/canonical/dir')
-    expect(gateway.openSystem).not.toHaveBeenCalled()
+    expect(gateway.openFile).toHaveBeenCalledWith(id, '/canonical/dir', expect.any(AbortSignal))
   })
 
-  it('uses canonical paths for explicit native mode and never falls back on viewer failure', async () => {
+  it('delegates common policy with canonical paths and preserves handler failure', async () => {
     const system = fixture({}, { openMode: 'system' })
     await system.runtime.open(id, './a.md')
-    expect(system.gateway.openSystem).toHaveBeenCalledWith('/canonical/./a.md', expect.any(AbortSignal))
+    expect(system.gateway.openFile).toHaveBeenCalledWith(id, '/canonical/./a.md', expect.any(AbortSignal))
     const error = new Error('handler failed')
-    const preview = fixture({ openResource: async () => { throw error } })
+    const preview = fixture({ openFile: async () => { throw error } })
     await expect(preview.runtime.open(id, './a.md')).rejects.toBe(error)
-    expect(preview.gateway.openSystem).not.toHaveBeenCalled()
   })
 
   it('validates session destinations without any filesystem calls', async () => {
@@ -101,12 +99,11 @@ describe('metadata-backed routing', () => {
     const { runtime, gateway } = fixture({ resolve: async () => ({ path: '/socket', name: 'socket', kind: 'other' }) })
     await expect(runtime.open(id, 'https://host/file.md')).rejects.toThrow('Unsupported resource')
     await expect(runtime.open(id, '/socket')).rejects.toThrow('Unsupported filesystem')
-    expect(gateway.openSystem).not.toHaveBeenCalled()
   })
 })
 
 describe('bounded discovery lifetime', () => {
-  it('delegates known sessions without projected cwd to the manager and separates that cache identity', async () => {
+  it('delegates known sessions without projected cwd to the provider and separates that cache identity', async () => {
     vi.useFakeTimers()
     let cwd: string | undefined
     const { runtime, gateway } = fixture({ cwd: () => cwd })
@@ -160,7 +157,6 @@ describe('bounded discovery lifetime', () => {
     const error = { code: 'ENOENT' }
     vi.mocked(gateway.resolve).mockRejectedValue(error)
     await expect(runtime.open(id, 'a.md')).rejects.toBe(error)
-    expect(gateway.openSystem).not.toHaveBeenCalled()
   })
 
   it('does not cache missing paths or transport failures', async () => {

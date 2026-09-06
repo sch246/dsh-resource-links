@@ -1,0 +1,2 @@
+patches/deepseek-harness.patch -whitespace
+patches/history/resource-links.patch -whitespace

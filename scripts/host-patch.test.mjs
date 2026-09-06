@@ -17,7 +17,7 @@ function fixture(t) {
   execFileSync('git', ['-C', root, 'add', 'adapter.txt'])
   execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@localhost', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'baseline'])
   writeFileSync(patchPath, 'diff --git a/adapter.txt b/adapter.txt\n--- a/adapter.txt\n+++ b/adapter.txt\n@@ -1 +1 @@\n-before\n+after\n')
-  return { root, source, patchPath, receipt: join(root, '.git/dsh-resource-links.patch-state'), run: mode => managePatch({ checkout: root, patchPath, mode }) }
+  return { root, source, patchPath, receipt: join(root, '.git/dsh-user-files.patch-state'), run: mode => managePatch({ checkout: root, patchPath, mode }) }
 }
 
 test('inspection is read-only; apply is idempotent and removal preserves unrelated data', t => {

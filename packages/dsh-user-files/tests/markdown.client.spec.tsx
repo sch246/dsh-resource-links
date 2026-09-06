@@ -21,10 +21,11 @@ describe('resource links through Host Markdown rendering', () => {
         ? { inputPath, ok: true as const, value: { path: inputPath, name: inputPath, kind: inputPath.endsWith('.md') ? 'file' as const : 'directory' as const } }
         : { inputPath, ok: false as const, error: { code: 'ENOENT', message: 'Not found' } })),
       resolve: vi.fn(async (_id, path) => ({ path, name: path, kind: 'directory' as const })),
-      openResource: vi.fn(async () => {}), openDirectory: vi.fn(async () => {}),
-      openSession: vi.fn(), openSystem: vi.fn(async () => {}),
+      openFile: vi.fn(async () => {}),
+      openSession: vi.fn(),
     }
     const runtime = new ResourceLinksRuntime(gateway, {
+      enabled: true, maxResolveBatchSize: 128, maxTextReadBytes: 1024, maxByteReadBytes: 4096,
       openMode: 'preview', batchDelayMs: 0, maxBatchSize: 128, cacheTtlMs: 1000,
       maxCacheEntries: 128, maxPendingPaths: 128, maxCandidatesPerText: 32,
     })
@@ -56,8 +57,7 @@ describe('resource links through Host Markdown rendering', () => {
     expect(gateway.resolve).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '/' }))
     fireEvent.click(screen.getByRole('button', { name: '.' }))
-    await waitFor(() => { expect(gateway.openDirectory).toHaveBeenCalledTimes(2) })
-    expect(vi.mocked(gateway.openDirectory).mock.calls).toEqual([[sessionId, '/'], [sessionId, '.']])
-    expect(gateway.openSystem).not.toHaveBeenCalled()
+    await waitFor(() => { expect(gateway.openFile).toHaveBeenCalledTimes(2) })
+    expect(vi.mocked(gateway.openFile).mock.calls).toEqual([[sessionId, '/', expect.any(AbortSignal)], [sessionId, '.', expect.any(AbortSignal)]])
   })
 })

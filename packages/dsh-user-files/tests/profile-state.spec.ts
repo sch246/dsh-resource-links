@@ -10,7 +10,7 @@ it('distinguishes absent profiles from Bundle-only ghosts and wrong checkout dec
   const script = fileURLToPath(new URL('../../../scripts/profile-state.mjs', import.meta.url))
   const checkout = fileURLToPath(new URL('../../../harness', import.meta.url))
   const root = join(home, 'profiles', 'test')
-  const name = '@dsh-external/dsh-resource-links'
+  const name = '@dsh-external/dsh-user-files'
   const run = (mode: string) => spawnSync(process.execPath, [script, mode], {
     encoding: 'utf8', env: { ...process.env, DSH_CHECKOUT: checkout, DSH_HOME: home, DSH_PROFILE: 'test' },
   })
@@ -29,9 +29,9 @@ it('distinguishes absent profiles from Bundle-only ghosts and wrong checkout dec
     await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { [name]: 'link:/wrong-checkout' }, dsh: { profile: { bundles: [name] } } }))
     const wrong = run('--verify')
     expect(wrong.status).toBe(1)
-    expect(wrong.stderr).toContain('manifest/lock specifier')
+    expect(wrong.stderr).toContain('manifest and lock specifiers')
     expect(run('--removed').status).toBe(1)
     expect(run('--finish-removal').stderr).toContain('dependency remains')
-    expect(run('--remove-dependency').stderr).toContain('manifest/lock specifier')
+    expect(run('--remove-dependency').stderr).toContain('manifest and lock specifiers')
   } finally { await rm(home, { recursive: true, force: true }) }
 })

@@ -85,200 +85,123 @@ index 0000000000..9c2c17ccc8
 +
 +聚焦的原语和 Chat 测试覆盖异步出现、UTF-16 偏移、过时完成、拒绝、安全超链接、引用芯片、重试路由、卸载及目录 waterfall。构建后浏览器组合与插件元数据解释需要外部插件的集成证据。
 diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
-new file mode 100644
-index 0000000000..9c07689e39
---- /dev/null
+index fff3d3a800..4a4b07e1f0 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
 +++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.i18n.yaml
-@@ -0,0 +1,6 @@
-+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-+# side as of the last confirmed-consistent state. Both languages carry equal authority;
-+# after editing either side, bring the other along and re-record with:
-+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
-+2026-09-05-chat-workspace-file-open-waterfall.md: 088ed36e2c0c6824d9ab18132417febfb204ae7d
-+2026-09-05-chat-workspace-file-open-waterfall.zh.md: ac67344bfc9d826f00e7e802d00cb736d1ed5f4d
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
+-2026-09-05-chat-workspace-file-open-waterfall.md: 51a2184153e6d67a1e3c0f3782e5facd6139296d
+-2026-09-05-chat-workspace-file-open-waterfall.zh.md: 3b385ffd95fa6ca6492cd1481f60d09fbd351ea0
++2026-09-05-chat-workspace-file-open-waterfall.md: f4a44a4be5f4a671345d609a5cd09ff168305916
++2026-09-05-chat-workspace-file-open-waterfall.zh.md: fee57f5e7a9a9bc56b1981ada92cbfc43abb8d9d
 diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
-new file mode 100644
-index 0000000000..088ed36e2c
---- /dev/null
+index 51a2184153..f4a44a4be5 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
 +++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md
-@@ -0,0 +1,29 @@
-+# Agent Note: Chat workspace-file open waterfall
-+
-+Status: implemented
-+
-+English | [中文](2026-09-05-chat-workspace-file-open-waterfall.zh.md)
-+
-+## Problem
-+
-+Chat exposes one `ChatViewInjected.openFile` callback to tool rows, produced-file links, and closing-message mentions. The callback directly invoked the native Host opener, so a Client plugin could not present the file itself without replacing Chat presentation code or adding a second file-open registry.
-+
-+## Decision
-+
-+The public `/client` helper `openWorkspaceFile(ctx, request)` dispatches the typed `chat/open-workspace-file` waterfall for file paths. `ChatViewInjected.openFile` uses this helper with `preview: true`; external Client callers pass their own preview and placement intent. The request carries the addressed `SessionId`, workspace path, optional preview flag, relative or explicit group target, and opening mode. A listener handles the request by returning without `next()` and delegates by returning `next()`; one request therefore reaches either the handling listener or the terminal native action, never both.
-+
+@@ -12,7 +12,7 @@ Chat exposes one `ChatViewInjected.openFile` callback to tool rows, produced-fil
+ 
+ `ChatViewInjected.openFile` dispatches the typed `chat/open-workspace-file` waterfall for file paths. Its request carries the addressed `SessionId` and the workspace path. A listener handles the request by returning without `next()` and delegates by returning `next()`; one request therefore reaches either the handling listener or the terminal native action, never both.
+ 
+-The terminal action preserves the native behavior: it resolves the path with `resolveWorkspacePath(cwd, path)`, calls `session/openWorkspacePath`, and rejects on a Remote refusal. Listener throws and rejections also propagate unchanged to Chat's busy, retry, and stale-settlement handling. The Produced Files **Show in folder** action passes `.` directly to the terminal native action, so directory opening is outside the file waterfall.
 +The terminal action preserves the native behavior: it resolves the path with `resolveWorkspacePath(cwd, path)`, calls `session/openWorkspacePath`, and rejects on a Remote refusal. Listener throws and rejections also propagate unchanged to Chat's busy, retry, and stale-settlement handling. The Produced Files **Show in folder** action passes `.` through the same waterfall ([resource display decision](2026-09-05-chat-async-text-links.md)).
-+
-+Explicit system mode and the optional `workspaceFileOpenPolicy` service's system mode bypass the waterfall and use the native action. The helper reads policy at each call; an absent provider preserves default dispatch. This lets deployment policy apply independently of text-link decoration. The event and policy types belong to ui-chat and name no viewer implementation. An external Client plugin can depend on the exported request type and register an ordinary Cordis listener; ui-chat has no dependency on that plugin.
-+
-+## Alternatives considered
-+
-+**Add a file-viewer registry.** Rejected because Cordis already provides ordered, disposable middleware and the public helper supplies one file-open entry point for Client consumers.
-+
-+**Always open natively and notify viewers afterward.** Rejected because it double-opens handled files and gives a viewer no way to replace the native action.
-+
-+**Catch listener failures and fall back to native opening.** Rejected because an unexpected viewer failure would open a second application and hide the failure from Chat's existing retry UI.
-+
-+## Consequences
-+
+ 
+ The event belongs to ui-chat and names no viewer implementation. An external Client plugin can depend on the exported request type and register an ordinary Cordis listener; ui-chat has no dependency on that plugin.
+ 
+@@ -26,4 +26,4 @@ The event belongs to ui-chat and names no viewer implementation. An external Cli
+ 
+ ## Consequences
+ 
+-Client plugins can replace file opening per request or delegate to the native Host behavior. Focused ui-chat tests pin native fallback, handled short-circuiting, explicit delegation, request identity, error propagation, and the unchanged workspace-folder path. The tool-row file-open decision remains the owner of link presentation and Host opener policy ([tool-call file open](../feature/2026-07-28-tool-call-file-open-in-os.md)).
 +Client plugins can replace file opening per request or delegate to the native Host behavior. Focused ui-chat tests pin native fallback, handled short-circuiting, explicit delegation, request identity, error propagation, and the workspace-folder waterfall. The tool-row file-open decision remains the owner of link presentation and Host opener policy ([tool-call file open](../feature/2026-07-28-tool-call-file-open-in-os.md)).
 diff --git a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
-new file mode 100644
-index 0000000000..ac67344bfc
---- /dev/null
+index 3b385ffd95..fee57f5e7a 100644
+--- a/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
 +++ b/.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md
-@@ -0,0 +1,29 @@
-+# Agent Note: Chat workspace 文件打开 waterfall
-+
-+Status: implemented
-+
-+[English](2026-09-05-chat-workspace-file-open-waterfall.md) | 中文
-+
-+## 问题
-+
-+Chat 通过唯一的 `ChatViewInjected.openFile` 回调服务于工具行、产出文件链接和收尾消息中的文件提及。该回调直接调用原生 Host 打开器，因此 Client 插件若要自行呈现文件，就必须替换 Chat 呈现代码或另建一套文件打开 registry。
-+
-+## 决策
-+
-+公共 `/client` helper `openWorkspaceFile(ctx, request)` 对文件路径分发 typed `chat/open-workspace-file` waterfall。`ChatViewInjected.openFile` 使用此 helper 并传入 `preview: true`；外部 Client 调用方传入自己的预览和放置意图。请求携带目标 `SessionId`、workspace 路径、可选预览标记、相对位置或明确的 group 目标，以及打开模式。listener 不调用 `next()` 而直接返回时处理请求，返回 `next()` 时委托请求；因此一个请求只会到达处理它的 listener 或末端原生操作，不会同时到达两者。
-+
+@@ -12,7 +12,7 @@ Chat 通过唯一的 `ChatViewInjected.openFile` 回调服务于工具行、产
+ 
+ `ChatViewInjected.openFile` 对文件路径分发 typed `chat/open-workspace-file` waterfall。请求携带目标 `SessionId` 和 workspace 路径。listener 不调用 `next()` 而直接返回时处理请求，返回 `next()` 时委托请求；因此一个请求只会到达处理它的 listener 或末端原生操作，不会同时到达两者。
+ 
+-末端操作精确保留原生行为：它通过 `resolveWorkspacePath(cwd, path)` 解析路径、调用 `session/openWorkspacePath`，并在 Remote 拒绝时 reject。listener 抛错或 reject 也原样传播到 Chat 的 busy、重试和陈旧结果处理。Produced Files 的**在文件夹中显示**操作会把 `.` 直接交给末端原生操作，因此目录打开不进入文件 waterfall。
 +末端操作精确保留原生行为：它通过 `resolveWorkspacePath(cwd, path)` 解析路径、调用 `session/openWorkspacePath`，并在 Remote 拒绝时 reject。listener 抛错或 reject 也原样传播到 Chat 的 busy、重试和陈旧结果处理。Produced Files 的**在文件夹中显示**操作通过相同的 waterfall 传递 `.`（[资源显示决策](2026-09-05-chat-async-text-links.zh.md)）。
-+
-+显式 system 模式以及可选 `workspaceFileOpenPolicy` 服务的 system 模式会跳过 waterfall，使用原生操作。helper 在每次调用时读取策略；没有 provider 时保留默认分发。因此部署策略可独立于文本链接装饰生效。事件和策略类型由 ui-chat 持有，其名称不指向任何 viewer 实现。外部 Client 插件可以依赖导出的请求类型并注册普通 Cordis listener；ui-chat 不依赖该插件。
-+
-+## 考虑过的替代方案
-+
-+**增加文件 viewer registry。** 否决，因为 Cordis 已提供有序且可 dispose 的 middleware，而公共 helper 为 Client 消费方提供统一的文件打开入口。
-+
-+**始终原生打开，再通知 viewer。** 否决，因为这会重复打开已处理的文件，也不允许 viewer 替代原生操作。
-+
-+**捕获 listener 失败并回退到原生打开。** 否决，因为 viewer 意外失败时会打开另一个应用，并向 Chat 既有的重试 UI 隐藏失败。
-+
-+## 后果
-+
+ 
+ 该事件由 ui-chat 持有，其名称不指向任何 viewer 实现。外部 Client 插件可以依赖导出的请求类型并注册普通 Cordis listener；ui-chat 不依赖该插件。
+ 
+@@ -26,4 +26,4 @@ Chat 通过唯一的 `ChatViewInjected.openFile` 回调服务于工具行、产
+ 
+ ## 后果
+ 
+-Client 插件可以逐请求替换文件打开行为，或委托给原生 Host 行为。ui-chat 聚焦测试固定原生回退、已处理请求的短路、显式委托、请求身份、错误传播和不变的 workspace 文件夹路径。工具行文件打开决策继续持有链接呈现和 Host 打开器策略（[工具调用文件打开](../feature/2026-07-28-tool-call-file-open-in-os.zh.md)）。
 +Client 插件可以逐请求替换文件打开行为，或委托给原生 Host 行为。ui-chat 聚焦测试固定原生回退、已处理请求的短路、显式委托、请求身份、错误传播和 workspace 文件夹 waterfall。工具行文件打开决策继续持有链接呈现和 Host 打开器策略（[工具调用文件打开](../feature/2026-07-28-tool-call-file-open-in-os.zh.md)）。
 diff --git a/packages/client/ui-chat/README.i18n.yaml b/packages/client/ui-chat/README.i18n.yaml
-index a38a72ef3e..3ee9bc2f60 100644
+index 07ba49fd2d..49a27e646d 100644
 --- a/packages/client/ui-chat/README.i18n.yaml
 +++ b/packages/client/ui-chat/README.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write packages/client/ui-chat/README.md
--README.md: 5c7549da07e8101c6b08b4cad57afd5158980b7f
--README.zh.md: a558bf94f5436eebdf035ca7507ecd25ec3c8d8a
-+README.md: e5ab354bfb0ca2c82563a406e8d92f70eca9dfbf
-+README.zh.md: 66390988e85ae9eb03c5f8026a5daa1083121897
+-README.md: 83062edd3fa13a0a41c2bbbbf0260427a8d763d4
+-README.zh.md: 8bce7a1613031964bc07f253343d1dc582e4e6d0
++README.md: 34454401a9571091e0da13361cd7103e02a14978
++README.zh.md: 69c6cb423e6ea7e37e97f62e1dfa7c3aa11a7b62
 diff --git a/packages/client/ui-chat/README.md b/packages/client/ui-chat/README.md
-index 5c7549da07..e5ab354bfb 100644
+index 83062edd3f..34454401a9 100644
 --- a/packages/client/ui-chat/README.md
 +++ b/packages/client/ui-chat/README.md
-@@ -13,6 +13,7 @@ The browser Chat target for Conversation assembly. It registers Chat event defin
- ## Table of Contents
+@@ -32,7 +32,9 @@ Chat shows a collapsed `System prompt` row for each non-empty initial or resumed
+ <a id="file-opening"></a>
+ ## File opening
  
- - [System prompt row](#system-prompt-row)
-+- [File opening](#file-opening)
- - [Turn token usage](#turn-token-usage)
- - [Turn Process Folding](#turn-process-folding)
- - [Model Experience](#model-experience)
-@@ -28,6 +29,15 @@ Chat shows a collapsed `System prompt` row for each non-empty initial or resumed
- 
- -----
- 
-+<a id="file-opening"></a>
-+## File opening
-+
-+Chat and external Client plugins open workspace files with the public `openWorkspaceFile(ctx, request)` helper from `/client`. It sends the original request through `chat/open-workspace-file`; Chat supplies `preview: true`, and callers can select preview intent and a relative or explicit group destination. Explicit `mode: 'system'` or the optional `workspaceFileOpenPolicy` service's system mode bypasses handlers. Otherwise a handler returns without `next()` to handle the request or calls `next()` to delegate. The terminal action resolves the path against the Session cwd and calls `session/openWorkspacePath` once. An optional same-process cancellation signal reaches handlers and the native Remote call. Handler and native failures reject without fallback; Chat displays its existing retry dialog ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md)).
+-Chat sends file links through the typed `chat/open-workspace-file` waterfall with the addressed Session id and workspace path. A Client plugin handles the request by returning without `next()` or delegates to the native opener with `next()`; the terminal action resolves the path against the Session cwd and calls `session/openWorkspacePath`. Handler failures reach Chat's existing retry dialog. The Show in folder action keeps its direct native `.` request and does not enter the file waterfall ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md)).
++Chat sends file links, including the workspace `.` action, through the typed `chat/open-workspace-file` waterfall with the addressed Session id and workspace path. A Client plugin handles the request by returning without `next()` or delegates to the native opener with `next()`; the terminal action resolves the path against the Session cwd and calls `session/openWorkspacePath`. Handler failures reach Chat's existing retry dialog ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.md)).
 +
 +An optional `ctx.chatTextLinks` provider decorates settled Assistant prose, inline code, authored Markdown destinations, and user/steering/submission bubbles through plain callbacks. Callbacks distinguish prose (`text`), parsed Markdown code spans (`inline-code`), and authored link destinations (`target`). The provider owns resource recognition and opening; Chat preserves logged text, safe external hyperlinks, and existing reference chips. Discovery failures leave ordinary presentation intact. Open failures retain their opaque target in the resource retry dialog. Callbacks read the current provider on each call, so removal cannot invoke a retained provider; newly installed providers take effect on the next text resolution or view mount ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.md)).
-+
-+-----
-+
- <a id="turn-token-usage"></a>
- ## Turn token usage
- 
-diff --git a/packages/client/ui-chat/README.zh.md b/packages/client/ui-chat/README.zh.md
-index a558bf94f5..66390988e8 100644
---- a/packages/client/ui-chat/README.zh.md
-+++ b/packages/client/ui-chat/README.zh.md
-@@ -13,6 +13,7 @@ Conversation 组装的浏览器 Chat target。本包注册 Chat event definition
- ## 目录
- 
- - [系统提示词行](#system-prompt-row)
-+- [文件打开](#file-opening)
- - [轮次 token 用量](#turn-token-usage)
- - [轮次过程折叠](#turn-process-folding)
- - [模型体验](#model-experience)
-@@ -28,6 +29,15 @@ Chat 会为每个非空的初始或恢复请求、显式消息序列起点或真
  
  -----
  
-+<a id="file-opening"></a>
-+## 文件打开
-+
-+Chat 与外部 Client 插件通过 `/client` 的公共 `openWorkspaceFile(ctx, request)` helper 打开 workspace 文件。它将原始请求发送到 `chat/open-workspace-file` waterfall（瀑布式事件）；Chat 传入 `preview: true`，调用方可指定预览意图以及相对位置或明确的 group 目标。显式 `mode: 'system'` 或可选 `workspaceFileOpenPolicy` 服务的 system 模式会跳过 handler。其他情况下，handler 不调用 `next()` 而直接返回以处理请求，或调用 `next()` 委托请求。末端操作会基于 Session cwd 解析路径，并且只调用一次 `session/openWorkspacePath`。可选的进程内取消信号会传递给 handler 和原生 Remote 调用。handler 与原生打开失败都会 reject，不触发回退；Chat 显示既有的重试对话框（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md)）。
+diff --git a/packages/client/ui-chat/README.zh.md b/packages/client/ui-chat/README.zh.md
+index 8bce7a1613..69c6cb423e 100644
+--- a/packages/client/ui-chat/README.zh.md
++++ b/packages/client/ui-chat/README.zh.md
+@@ -32,7 +32,9 @@ Chat 会为每个非空的初始或恢复请求、显式消息序列起点或真
+ <a id="file-opening"></a>
+ ## 文件打开
+ 
+-Chat 通过 typed `chat/open-workspace-file` waterfall（瀑布式事件）发送文件链接，并携带目标 Session id 与 workspace 路径。Client 插件可以不调用 `next()` 而直接返回以处理请求，也可以调用 `next()` 委托给原生打开器；末端操作会基于 Session cwd 解析路径并调用 `session/openWorkspacePath`。handler 失败会进入 Chat 既有的重试对话框。「在文件夹中显示」操作继续直接发送原生 `.` 请求，不进入文件 waterfall（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md)）。
++Chat 通过 typed `chat/open-workspace-file` waterfall（瀑布式事件）发送文件链接（包括 workspace `.` 操作），并携带目标 Session id 与 workspace 路径。Client 插件可以不调用 `next()` 而直接返回以处理请求，也可以调用 `next()` 委托给原生打开器；末端操作会基于 Session cwd 解析路径并调用 `session/openWorkspacePath`。handler 失败会进入 Chat 既有的重试对话框（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-workspace-file-open-waterfall.zh.md)）。
 +
 +可选的 `ctx.chatTextLinks` 提供方通过普通回调装饰已完成的 Assistant 正文、行内代码、Markdown 目标及用户、steering、提交回显气泡。回调区分正文（`text`）、Markdown 解析出的行内代码（`inline-code`）和创作链接目标（`target`）。提供方负责资源识别与打开；Chat 保留日志原文、安全外部超链接和现有引用芯片。发现失败时保留普通呈现。打开失败时，资源重试对话框保留不透明目标。回调每次调用都读取当前提供方，因此移除后不会调用保留的提供方；新安装的提供方在下一次文本解析或视图挂载时生效（[决策](../../../.agents/notes/implemented/architecture/2026-09-05-chat-async-text-links.zh.md)）。
-+
-+-----
-+
- <a id="turn-token-usage"></a>
- ## 轮次 token 用量
+ 
+ -----
  
 diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
-index be061dff13..34aa725e1c 100644
+index b0dbea3f92..5137fde61c 100644
 --- a/packages/client/ui-chat/src/client/apply.ts
 +++ b/packages/client/ui-chat/src/client/apply.ts
-@@ -5,7 +5,6 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
- import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
- import type { BoundActions, ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
- import type { SessionId } from '@deepseek-ai/dsh-session/types'
--import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
- // Type-only service and declaration merges used by the apply world.
- import type {} from '@deepseek-ai/dsh-client-locale/client'
- import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-@@ -30,6 +29,7 @@ import { en, NS, zh } from './locale.ts'
- import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/TranscriptViewRow.tsx'
- import { createChatStore } from './stores.ts'
- import { TranscriptViewPolicy } from './transcript-view.ts'
-+import { openWorkspaceFile } from './open-workspace-file.ts'
- import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../chat-settings.ts'
- 
- const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
-@@ -83,7 +83,6 @@ export function apply(ctx: Context): void {
-   const transcriptView = new TranscriptViewPolicy(
-     ctx.settingsScope.bind<ChatSettings>({ namespace: CHAT_SETTINGS_NAMESPACE }),
-   )
--
-   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-     name: 'settings.general.item',
-     id: 'transcript-view',
-@@ -117,13 +116,13 @@ export function apply(ctx: Context): void {
+@@ -124,13 +124,17 @@ export function apply(ctx: Context): void {
              ctx.layout.openDetails()
            },
            fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
--          openFile: async (path) => {
--            const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
--            const result = await ctx.remote.session.openWorkspacePath({
--              path: resolveWorkspacePath(cwd, path),
--            })
--            if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
+-          openFile: path => path === '.'
+-            ? openNativeWorkspacePath(sessionId, path)
+-            : ctx.waterfall(
+-              'chat/open-workspace-file',
+-              { sessionId, path },
+-              () => openNativeWorkspacePath(sessionId, path),
+-            ),
 +          resolveTextLinks: async (text, mode) => ctx.get('chatTextLinks')?.resolve(sessionId, text, mode) ?? [],
 +          openTextLink: async (target) => {
 +            const provider = ctx.get('chatTextLinks')
 +            if (provider === undefined) throw new Error(t('resourceOpen.unavailable'))
 +            await provider.open(sessionId, target)
-           },
-+          openFile: path => openWorkspaceFile(ctx, { sessionId, path, preview: true }),
++          },
++          openFile: path => ctx.waterfall(
++            'chat/open-workspace-file',
++            { sessionId, path },
++            () => openNativeWorkspacePath(sessionId, path),
++          ),
            loadOlder: () => { void session.loadOlder() },
            loadImage: Object.assign(
              (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
@@ -578,17 +501,10 @@ index cb8084fe41..982fabfbf9 100644
        {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
        reveal={isLatestUserRow ? 'always' : 'hover'}
 diff --git a/packages/client/ui-chat/src/client/contract/slots.ts b/packages/client/ui-chat/src/client/contract/slots.ts
-index 3a8bde4626..98938f690c 100644
+index 2031818385..8193ca0436 100644
 --- a/packages/client/ui-chat/src/client/contract/slots.ts
 +++ b/packages/client/ui-chat/src/client/contract/slots.ts
-@@ -1,5 +1,6 @@
- /** Chat-owned Slot declarations and composed component props. */
- import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-+import type { SessionId } from '@deepseek-ai/dsh-session/types'
- import type {
-   ConversationTurnDataMap, MessageImageLoader, MessageImagesOwnerProps, RenderMessageImages, TurnLocation,
- } from '@deepseek-ai/dsh-client-ui-conversation/client'
-@@ -8,7 +9,7 @@ import type {
+@@ -9,7 +9,7 @@ import type {
    SnapshotSelectorHook,
  } from '@deepseek-ai/dsh-client-ui-slots'
  import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -597,43 +513,10 @@ index 3a8bde4626..98938f690c 100644
  import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
  import type { createChatStore } from '../stores.ts'
  import type { ToolCallId, SelectionTarget } from './store.ts'
-@@ -42,10 +43,79 @@ export interface ChatFileMentions {
-   forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
+@@ -51,10 +51,30 @@ export interface ChatFileOpenRequest {
+   readonly path: string
  }
  
-+/**
-+ * Relative or explicit group destination for a workspace file.
-+ * Group and instance ids use the existing resource placement string ABI.
-+ */
-+export type ChatFileOpenTarget =
-+  | { readonly groupId: string }
-+  | {
-+    readonly fromInstanceId: string
-+    readonly direction: 'center' | 'left' | 'right' | 'up' | 'down'
-+  }
-+
-+/** Optional deployment policy for workspace-file opening. */
-+export interface WorkspaceFileOpenPolicy {
-+  /** Preview delegates to Client handlers; system opens with the native application. */
-+  readonly mode: 'preview' | 'system'
-+}
-+
-+/** One Client request to open a file from a Session workspace. */
-+export interface ChatFileOpenRequest {
-+  /** Session that owns the workspace path. */
-+  readonly sessionId: SessionId
-+  /** Path relative to the Session cwd, or an absolute path. */
-+  readonly path: string
-+  /** Preview intent for Client handlers; callers choose their default. */
-+  readonly preview?: boolean
-+  /** Requested Client destination; native opening ignores placement. */
-+  readonly target?: ChatFileOpenTarget
-+  /** System bypasses Client handlers; default follows the optional deployment policy. */
-+  readonly mode?: 'default' | 'system'
-+  /** Same-process cancellation signal forwarded to handlers and native Remote calls. */
-+  readonly signal?: AbortSignal
-+}
-+
 +/** Optional Client provider for presentation-only Chat text links. */
 +export interface ChatTextLinks {
 +  /**
@@ -654,30 +537,14 @@ index 3a8bde4626..98938f690c 100644
 +
  declare module '@deepseek-ai/cordis' {
    interface Context {
-+    /** Optional deployment policy read for each workspace-file open request. */
-+    workspaceFileOpenPolicy: WorkspaceFileOpenPolicy
      /** Optional prose file-mention provider. */
      chatFileMentions: ChatFileMentions
 +    /** Optional asynchronous text decoration provider. */
 +    chatTextLinks: ChatTextLinks
-+  }
-+
-+  interface Events {
-+    /**
-+     * Let a Client plugin handle one workspace-file open request. A
-+     * listener that does not handle the request must call `next()`.
-+     * @param request - addressed Session, workspace path, and presentation intent.
-+     * @dshScopeScan unsupported
-+     * @mode waterfall
-+     */
-+    'chat/open-workspace-file'(
-+      request: ChatFileOpenRequest,
-+      next: () => Promise<void>,
-+    ): Promise<void>
    }
- }
  
-@@ -61,6 +131,7 @@ export interface ChatNodeTurnDataInjected {
+   interface Events {
+@@ -84,6 +104,7 @@ export interface ChatNodeTurnDataInjected {
  
  /** Stable owner currency delivered to a keyed Chat renderer. */
  export interface ChatNodeOwnerProps {
@@ -685,7 +552,7 @@ index 3a8bde4626..98938f690c 100644
    selectedCallId?: ToolCallId | undefined
    cwd?: string | undefined
    openFile: (path: string) => void
-@@ -111,6 +182,8 @@ export interface ChatScrollPosition {
+@@ -134,6 +155,8 @@ export interface ChatScrollPosition {
  
  /** Business callbacks injected into the Chat view. */
  export interface ChatViewInjected {
@@ -694,7 +561,7 @@ index 3a8bde4626..98938f690c 100644
    hooks: {
      /** Persisted completed-Turn transcript presentation. */
      transcriptView: SnapshotStore<TranscriptViewMode>
-@@ -208,7 +281,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+@@ -231,7 +254,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       * replaces that entry. With no entries, the shipped usage/time row remains
       * unchanged.
       */
@@ -704,32 +571,17 @@ index 3a8bde4626..98938f690c 100644
      /**
       * Whole details-panel body for the selected Tool call. The component receives
 diff --git a/packages/client/ui-chat/src/client/index.ts b/packages/client/ui-chat/src/client/index.ts
-index f45b686af5..8c7257d233 100644
+index d4fe8cc6ad..2a33fd54ac 100644
 --- a/packages/client/ui-chat/src/client/index.ts
 +++ b/packages/client/ui-chat/src/client/index.ts
-@@ -1,5 +1,8 @@
+@@ -1,5 +1,7 @@
  /** Browser Chat target plugin. */
  export { apply, inject } from './apply.ts'
-+export { openWorkspaceFile } from './open-workspace-file.ts'
 +export type { TextLink } from '@deepseek-ai/dsh-client-ui-primitives'
 +export type { ChatTextLinks } from './contract/slots.ts'
  export type {} from './conversation-nodes/assistant.ts'
  export type {} from './conversation-nodes/command.ts'
  export type {} from './conversation-nodes/compaction.ts'
-@@ -30,11 +33,11 @@ export type { ChatStoreState, SelectionTarget, ToolCallId, TurnProcessViewEntry
- export type { TranscriptViewRowInjected, TranscriptViewRowProps } from './settings/TranscriptViewRow.tsx'
- export type { TranscriptViewMode } from '../chat-settings.ts'
- export type {
--  AssistantActionOwnerProps, ChatFileMentions, ChatNodeOwnerProps, ChatNodeTurnDataInjected,
-+  AssistantActionOwnerProps, ChatFileMentions, ChatFileOpenRequest, ChatFileOpenTarget, ChatNodeOwnerProps, ChatNodeTurnDataInjected,
-   ChatNodeViewProps, ChatScrollPosition, ChatStore, ChatViewInjected, ChatViewSlotProps,
-   CommandRowOwnerProps, CommandRowProps, DetailsInjected, DetailsSlotProps,
-   DetailsToolOwnerProps, MessageImagesProps,
--  TurnProcessOwnerProps, TurnTailOwnerProps, UseChat, UseChatNodeTurnData,
-+  TurnProcessOwnerProps, TurnTailOwnerProps, UseChat, UseChatNodeTurnData, WorkspaceFileOpenPolicy,
- } from './contract/slots.ts'
- export type {
-   TurnProcessGeneration, TurnProcessSignature, TurnProcessSpec,
 diff --git a/packages/client/ui-chat/src/client/locale.ts b/packages/client/ui-chat/src/client/locale.ts
 index cd0f6f50ce..17957fdb30 100644
 --- a/packages/client/ui-chat/src/client/locale.ts
@@ -754,109 +606,29 @@ index cd0f6f50ce..17957fdb30 100644
    'fileOpen.unknown': 'Couldn’t open this file',
    'fileOpen.folderTitle': 'Couldn’t open folder',
    'fileOpen.folderUnknown': 'Couldn’t open this folder',
-diff --git a/packages/client/ui-chat/src/client/open-workspace-file.ts b/packages/client/ui-chat/src/client/open-workspace-file.ts
-new file mode 100644
-index 0000000000..5b3d0e9f2b
---- /dev/null
-+++ b/packages/client/ui-chat/src/client/open-workspace-file.ts
-@@ -0,0 +1,29 @@
-+/** Shared Client workspace-file dispatch and native Host opening. */
-+import type { Context } from '@deepseek-ai/cordis'
-+import type {} from '@deepseek-ai/dsh-api-remotes/client'
-+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-+import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
-+import type { ChatFileOpenRequest } from './contract/slots.ts'
-+
-+/**
-+ * Open a workspace file through Client handlers or the native Host application.
-+ * System mode, whether explicit or supplied by policy, bypasses handlers.
-+ * Listener and native failures reject without a second open attempt.
-+ * @param ctx - Client context with sessions and remote.session injected.
-+ * @param request - Addressed workspace path and caller-selected presentation intent.
-+ * @returns Completion of the handling listener or native open operation.
-+ */
-+export async function openWorkspaceFile(ctx: Context, request: ChatFileOpenRequest): Promise<void> {
-+  const openNative = async (): Promise<void> => {
-+    const cwd = ctx.sessions.list.getSnapshot().byId[request.sessionId]?.cwd
-+    const result = await ctx.remote.session.openWorkspacePath({
-+      path: resolveWorkspacePath(cwd, request.path),
-+    }, request.signal)
-+    if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
-+  }
-+  if (request.mode === 'system' || ctx.get('workspaceFileOpenPolicy')?.mode === 'system') {
-+    await openNative()
-+    return
-+  }
-+  await ctx.waterfall('chat/open-workspace-file', request, openNative)
-+}
 diff --git a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
-index 052c2b3bf8..87e90209d7 100644
+index 2eb7cfa104..9520a59698 100644
 --- a/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
 +++ b/packages/client/ui-chat/tests/apply-inject.client.spec.tsx
-@@ -123,7 +123,7 @@ describe('Chat inject API', () => {
-     const b = await bench()
-     const { injected } = b.chatViewApi(ROOT)
-     await injected.openFile('src/a.ts')
--    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
-+    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' }, undefined)
- 
-     b.openWorkspacePath.mockResolvedValueOnce({
-       ok: false,
-@@ -133,6 +133,54 @@ describe('Chat inject API', () => {
+@@ -169,15 +169,15 @@ describe('Chat inject API', () => {
      await b.runtime.dispose()
    })
  
-+  it('lets a Chat file-open listener handle the addressed workspace path', async () => {
-+    const b = await bench()
-+    const requests: unknown[] = []
-+    b.runtime.ctx.on('chat/open-workspace-file', async (request) => {
-+      requests.push(request)
-+    })
-+
-+    await b.chatViewApi(ROOT).injected.openFile('src/a.ts')
-+
-+    expect(requests).toEqual([{ sessionId: ROOT, path: 'src/a.ts', preview: true }])
-+    expect(b.openWorkspacePath).not.toHaveBeenCalled()
-+    await b.runtime.dispose()
-+  })
-+
-+  it('opens natively only after a Chat file-open listener delegates', async () => {
-+    const b = await bench()
-+    b.runtime.ctx.on('chat/open-workspace-file', async (_request, next) => next())
-+
-+    await b.chatViewApi(ROOT).injected.openFile('src/a.ts')
-+
-+    expect(b.openWorkspacePath).toHaveBeenCalledOnce()
-+    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' }, undefined)
-+    await b.runtime.dispose()
-+  })
-+
-+  it('propagates a Chat file-open listener failure without a native open', async () => {
-+    const b = await bench()
-+    b.runtime.ctx.on('chat/open-workspace-file', async () => {
-+      throw new Error('viewer failed')
-+    })
-+
-+    await expect(b.chatViewApi(ROOT).injected.openFile('src/a.ts')).rejects.toThrow('viewer failed')
-+    expect(b.openWorkspacePath).not.toHaveBeenCalled()
-+    await b.runtime.dispose()
-+  })
-+
+-  it('keeps the workspace-folder action on the native opener', async () => {
 +  it('lets a listener handle the workspace-folder action', async () => {
-+    const b = await bench()
-+    const listener = vi.fn()
-+    b.runtime.ctx.on('chat/open-workspace-file', listener)
-+
-+    await b.chatViewApi(ROOT).injected.openFile('.')
-+
-+    expect(listener).toHaveBeenCalledWith({ sessionId: ROOT, path: '.', preview: true }, expect.any(Function))
-+    expect(b.openWorkspacePath).not.toHaveBeenCalled()
-+    await b.runtime.dispose()
-+  })
-+
-   it('fails loud when a Chat View inject resolves no Session', async () => {
      const b = await bench()
-     const entry = b.runtime.slots.entries('conversation.view')[0]!
+     const listener = vi.fn()
+     b.runtime.ctx.on('chat/open-workspace-file', listener)
+ 
+     await b.chatViewApi(ROOT).injected.openFile('.')
+ 
+-    expect(listener).not.toHaveBeenCalled()
+-    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/.' })
++    expect(listener).toHaveBeenCalledWith({ sessionId: ROOT, path: '.' }, expect.any(Function))
++    expect(b.openWorkspacePath).not.toHaveBeenCalled()
+     await b.runtime.dispose()
+   })
+ 
 diff --git a/packages/client/ui-chat/tests/chat-apply.client.spec.tsx b/packages/client/ui-chat/tests/chat-apply.client.spec.tsx
 index d9c1538190..4144254c2d 100644
 --- a/packages/client/ui-chat/tests/chat-apply.client.spec.tsx
@@ -970,118 +742,6 @@ index 2acc40853e..a2a8ae3150 100644
    it('leaves the turn rail unrendered when an unrelated Chat update commits', () => {
      const snapshot = chatSnapshotFixture({
        nodes: [
-diff --git a/packages/client/ui-chat/tests/open-workspace-file.client.spec.ts b/packages/client/ui-chat/tests/open-workspace-file.client.spec.ts
-new file mode 100644
-index 0000000000..d442691833
---- /dev/null
-+++ b/packages/client/ui-chat/tests/open-workspace-file.client.spec.ts
-@@ -0,0 +1,106 @@
-+// @vitest-environment jsdom
-+/** Shared workspace-file dispatch with real Cordis handlers and optional policy. */
-+import { Context } from '@deepseek-ai/cordis'
-+import { afterEach, describe, expect, it, vi } from 'vitest'
-+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
-+import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
-+import type { SessionId } from '@deepseek-ai/dsh-session/types'
-+import type { ChatFileOpenRequest } from '../src/client/contract/slots.ts'
-+import { openWorkspaceFile } from '../src/client/open-workspace-file.ts'
-+
-+const SESSION = 'file-session' as SessionId
-+const contexts: Context[] = []
-+afterEach(async () => {
-+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
-+})
-+
-+function bench() {
-+  const ctx = new Context()
-+  contexts.push(ctx)
-+  ctx.provide('sessions', {
-+    list: { getSnapshot: () => ({ byId: { [SESSION]: { cwd: '/workspace' } } }) },
-+  } as never)
-+  const native = vi.fn<ClientRemote['session']['openWorkspacePath']>(async () => ({
-+    ok: true, value: { opened: true },
-+  }))
-+  new TestRemote(ctx, { session: { openWorkspacePath: native } })
-+  return { ctx, native }
-+}
-+
-+describe('workspace-file opening', () => {
-+  it('opens once without a provider and resolves the addressed workspace', async () => {
-+    const { ctx, native } = bench()
-+    const signal = new AbortController().signal
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: 'report.md', signal })
-+    expect(native).toHaveBeenCalledExactlyOnceWith({ path: '/workspace/report.md' }, signal)
-+  })
-+
-+  it.each([
-+    { groupId: 'group-1' },
-+    { fromInstanceId: 'pane-1', direction: 'right' as const },
-+  ])('preserves caller preview and target intent: %j', async (target) => {
-+    const { ctx, native } = bench()
-+    const handle = vi.fn<(request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void>>(async () => {})
-+    ctx.on('chat/open-workspace-file', handle)
-+    const request: ChatFileOpenRequest = {
-+      sessionId: SESSION, path: 'report.md', preview: false, target, signal: new AbortController().signal,
-+    }
-+    await openWorkspaceFile(ctx, request)
-+    expect(handle).toHaveBeenCalledExactlyOnceWith(request, expect.any(Function))
-+    expect(handle.mock.calls[0]?.[0]).toBe(request)
-+    expect(native).not.toHaveBeenCalled()
-+  })
-+
-+  it('delegates through handlers and preserves absolute paths', async () => {
-+    const { ctx, native } = bench()
-+    ctx.on('chat/open-workspace-file', async (_request, next) => next())
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: '/other/report.md' })
-+    expect(native).toHaveBeenCalledExactlyOnceWith({ path: '/other/report.md' }, undefined)
-+  })
-+
-+  it('bypasses handlers for explicit system mode despite preview policy', async () => {
-+    const { ctx, native } = bench()
-+    ctx.provide('workspaceFileOpenPolicy', { mode: 'preview' })
-+    const handle = vi.fn<(request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void>>(async () => {})
-+    ctx.on('chat/open-workspace-file', handle)
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: '.', mode: 'system' })
-+    expect(handle).not.toHaveBeenCalled()
-+    expect(native).toHaveBeenCalledExactlyOnceWith({ path: '/workspace/.' }, undefined)
-+  })
-+
-+  it('reads optional policy at each call and follows handler disposal', async () => {
-+    const { ctx, native } = bench()
-+    const handle = vi.fn<(request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void>>(async () => {})
-+    const handler = await ctx.plugin((child) => { child.on('chat/open-workspace-file', handle) })
-+    const policy = await ctx.plugin((child) => { child.provide('workspaceFileOpenPolicy', { mode: 'system' }) })
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: '.', mode: 'default' })
-+    expect(handle).not.toHaveBeenCalled()
-+    expect(native).toHaveBeenCalledOnce()
-+    await policy.dispose()
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: '.' })
-+    expect(handle).toHaveBeenCalledOnce()
-+    expect(native).toHaveBeenCalledOnce()
-+    await handler.dispose()
-+    await openWorkspaceFile(ctx, { sessionId: SESSION, path: '.' })
-+    expect(native).toHaveBeenCalledTimes(2)
-+  })
-+
-+  it('propagates listener rejection without opening natively', async () => {
-+    const { ctx, native } = bench()
-+    const failure = new Error('viewer refused')
-+    ctx.on('chat/open-workspace-file', async () => { throw failure })
-+    await expect(openWorkspaceFile(ctx, { sessionId: SESSION, path: '.' })).rejects.toBe(failure)
-+    expect(native).not.toHaveBeenCalled()
-+  })
-+
-+  it('preserves native refusal and transport rejection without retries', async () => {
-+    const { ctx, native } = bench()
-+    native.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'opener missing', {}) })
-+    await expect(openWorkspaceFile(ctx, { sessionId: SESSION, path: '.' }))
-+      .rejects.toThrow('path open failed: opener missing')
-+    const failure = new Error('disconnected')
-+    native.mockRejectedValueOnce(failure)
-+    await expect(openWorkspaceFile(ctx, { sessionId: SESSION, path: '.', mode: 'system' })).rejects.toBe(failure)
-+    expect(native).toHaveBeenCalledTimes(2)
-+  })
-+})
 diff --git a/packages/client/ui-primitives/README.i18n.yaml b/packages/client/ui-primitives/README.i18n.yaml
 index d48604ea73..ce63dee2d2 100644
 --- a/packages/client/ui-primitives/README.i18n.yaml
@@ -1591,24 +1251,3 @@ index 0000000000..96805a0032
 +    expect(view.container.textContent).toBe('/plan Related tail')
 +  })
 +})
-diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
-index eaaccfcb20..68f98c1cf4 100644
---- a/scripts/gen-cordis-catalog.ts
-+++ b/scripts/gen-cordis-catalog.ts
-@@ -159,6 +159,8 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
-   uiWorkspace: 'client-side Workspace navigation adapter — packages/client/ui-workspace/README.md owns the API',
-   settingsSchema: 'client-side schema introspection service — packages/client/ui-settings/README.md owns the API',
-   settingsScope: 'client-side settings-namespace transport service — packages/client/ui-settings/README.md owns the API',
-+  workspaceFileOpenPolicy: 'client-side workspace-file opening policy — packages/client/ui-chat/README.md owns the API',
-+  chatTextLinks: 'client-side asynchronous text decoration provider — packages/client/ui-chat/README.md owns the API',
-   chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-chat/README.md owns the API',
-   commandUi: 'client-side interface-typed browser service — packages/client/ui-commands/README.md owns the API',
-   conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the API',
-@@ -219,6 +221,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
-  * exemption cannot mask another declaration in that scope.
-  */
- export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
-+  'chat/open-workspace-file': 'client-face workspace-file opening waterfall — packages/client/ui-chat/README.md owns the API',
-   'command/executed': 'client-face local command acknowledgment — packages/client/ui-commands/README.md owns the API',
-   'connection/reset': 'client-face transport signal — packages/api/session-controller/README.md owns the API',
-   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',

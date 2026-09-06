@@ -10,8 +10,8 @@ if (!existsSync(entry)) throw new Error(`Build the candidate Harness Host first:
 const { WorkspaceTypertGenerator } = await import(pathToFileURL(entry).href)
 const [artifact] = new WorkspaceTypertGenerator(root, {
   checkDiagnostics: false, externalProjectReferences: true,
-}).generate(['@dsh-external/dsh-resource-links'], ['host'])
-if (!artifact?.remote) throw new Error('Expected one resource-links Host artifact with Remote metadata')
+}).generate(['@dsh-external/dsh-user-files'], ['host'])
+if (!artifact?.remote) throw new Error('Expected one user-files Host artifact with Remote metadata')
 const output = join(root, artifact.packageRoot, 'lib')
 mkdirSync(output, { recursive: true })
 for (const [name, content] of [

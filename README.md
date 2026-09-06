@@ -1,27 +1,16 @@
-# Resource links for DeepSeek Harness
+# User files and optional Links for DeepSeek Harness
 
-This independent plugin discovers existing filesystem paths in Markdown inline code in displayed Chat messages and routes explicit resource opens. The local Web deployment is recorded in [the activation log](.intent/logs/2026-09-05-managed-activation.md); that record does not establish user visual acceptance or portability to another Host. The current implementation requires compatible Host, file-manager and resource-workbench APIs; their package version numbers need not match. [The dependency map](.intent/state/STATE.md#intended-dependencies-and-pending-migration) records the pending move to an optional shared-file-provider feature.
-
-The [package reference](packages/dsh-resource-links/README.md) owns recognition, configuration and routing behavior. [STATE](.intent/state/STATE.md) records intended behavior; [LOG](.intent/LOG.md) records executed evidence. The [ownership note](docs/agent-notes/resource-links-ownership.md) explains the direct transfer of Chat routing from the manager.
-
-Build against an explicitly selected Harness after its Host and Client declarations, the file manager and the resource workbench are built:
+This repository retains the Resource Links history and distributes `@dsh-external/dsh-user-files`: authenticated Session-relative file access plus optional Markdown inline-code links. Viewer, manager and sidebar are independent consumers. The [package reference](packages/dsh-user-files/README.md) owns API/configuration behavior; [STATE](.intent/state/STATE.md) guides installation and adaptation.
 
 ```sh
-pnpm install --ignore-scripts
+pnpm install
 DSH_CHECKOUT=/absolute/candidate/harness pnpm run build
 DSH_CHECKOUT=/absolute/candidate/harness pnpm run typecheck
 DSH_CHECKOUT=/absolute/candidate/harness pnpm test
 ```
 
-`DSH_CHECKOUT`, `DSH_HOME` and `DSH_PROFILE` are required for profile operations. Both setup and uninstall inspect by default. Setup `--install` applies the owned incremental Host patch, rebuilds its Host/browser artifacts and this plugin, and installs its Bundle with `dsh plugin add`; uninstall `--remove` verifies patch ownership, atomically removes the Bundle, reverses its patch and rebuilds the changed Host/browser artifacts. Neither command restarts a service. A failure stops at that step; earlier source/artifact changes remain visible for recovery. Use a private Home containing the target profile's complete plugin set for the first installation probe; package presence alone does not prove the browser can boot.
+Build uses repository-local TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8. Vite 7.3.6 is pinned for standard decorator transformation in source tests. `DSH_CHECKOUT` selects Host declarations and the out-of-tree Typert generator. Build the selected Host first. The package can be packed from `packages/dsh-user-files` without any manager or viewer checkout.
 
-```sh
-DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run setup
-DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run setup --install
-DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run uninstall --check
-DSH_CHECKOUT=/absolute/candidate/harness DSH_HOME=/absolute/private-home DSH_PROFILE=web pnpm run uninstall --remove
-```
+Setup and uninstall require explicit `DSH_CHECKOUT`, `DSH_HOME` and `DSH_PROFILE`; both inspect by default. `setup --install` verifies or applies the attributable Host adapter, builds artifacts, then installs a missing provider through `dsh plugin add`. Compatible existing providers are reused. `uninstall --remove` refuses while any remaining declared consumer requires user-files, removes the provider and its owned adapter, and rebuilds affected catalogs. Neither entry restarts services.
 
-The profile must already compose the file manager, generic resource workbench and right sidebar. Those plugins own their respective installation transactions. Do not hand-edit profile dependency or Bundle JSON. Setup requires the adapter patch maintained in this repository; it does not adopt historical patches owned by other plugins. The patch expects the earlier Chat waterfall baseline; see [Host baseline and receipt limits](.intent/state/STATE.md#host-baseline-and-receipt-limits) before selecting a new Host or reversing an integrated installation.
-
-Uninstall can resume after the dependency transaction has completed. It verifies absence from the manifest, lockfile and composed profile, then removes a leftover package symlink only when it resolves to this exact checkout. A different target or a real directory is retained and reported as a conflict. Host reversal and Client catalog regeneration follow verified package removal.
+Existing Resource Links installations require the coordinated migration in STATE: preserve complete configuration, transfer old Host receipts using exact source evidence, remove the old Bundle and install one user-files provider. Setup refuses automatic adoption of an old receipt or an old resource-links Bundle. Historical patch evidence is frozen at [patches/history/resource-links.patch](patches/history/resource-links.patch). Current owned support combines the common opener and Markdown display API; shared Typert support remains separately owned.

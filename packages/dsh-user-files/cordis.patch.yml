@@ -1,7 +1,11 @@
 - insert:
-    - id: dsh-resource-links
-      name: '@dsh-external/dsh-resource-links'
+    - id: dsh-user-files
+      name: '@dsh-external/dsh-user-files'
       config:
+        enabled: false
+        maxResolveBatchSize: 128
+        maxTextReadBytes: 1048576
+        maxByteReadBytes: 16777216
         openMode: preview
         batchDelayMs: 10
         maxBatchSize: 128

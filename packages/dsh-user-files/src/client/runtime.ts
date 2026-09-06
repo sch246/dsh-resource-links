@@ -1,21 +1,18 @@
-/** Session-scoped metadata discovery and the sole Chat resource-open policy. */
+/** Session-scoped metadata discovery and the optional inline-code discovery. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatTextLinks, TextLink } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { FileManagerResolvedPath, FileManagerResolveManyResult } from '@dsh-external/dsh-file-manager/types'
-import type { ResourceDescriptor, ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
-import type { ResourceLinksConfig } from '../types.ts'
+import type { UserFileResolvedPath, UserFileResolveManyResult } from '@dsh-external/dsh-user-files/types'
+import type { UserFileMetadata } from '../types.ts'
 import { candidates, filesystemTarget, sessionTarget } from './parse.ts'
 
 /** Injected services; no text or byte reads are available to discovery. */
 export interface Gateway {
   readonly cwd: (sessionId: SessionId) => string | undefined
   readonly knownSession: (sessionId: SessionId) => boolean
-  readonly resolveMany: (sessionId: SessionId, paths: readonly string[], signal: AbortSignal) => Promise<readonly FileManagerResolveManyResult[]>
-  readonly resolve: (sessionId: SessionId, path: string, signal: AbortSignal) => Promise<FileManagerResolvedPath>
-  readonly openResource: (descriptor: ResourceDescriptor) => Promise<unknown>
-  readonly openDirectory: (sessionId: SessionId, path: string) => Promise<unknown>
+  readonly resolveMany: (sessionId: SessionId, paths: readonly string[], signal: AbortSignal) => Promise<readonly UserFileResolveManyResult[]>
+  readonly resolve: (sessionId: SessionId, path: string, signal: AbortSignal) => Promise<UserFileResolvedPath>
+  readonly openFile: (sessionId: SessionId, path: string, signal: AbortSignal) => Promise<void>
   readonly openSession: (sessionId: SessionId) => void
-  readonly openSystem: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 interface Pending {
@@ -23,13 +20,13 @@ interface Pending {
   readonly sessionId: SessionId
   readonly cwd: string | undefined
   readonly path: string
-  readonly promise: Promise<FileManagerResolvedPath | undefined>
-  readonly finish: (value: FileManagerResolvedPath | undefined) => void
+  readonly promise: Promise<UserFileResolvedPath | undefined>
+  readonly finish: (value: UserFileResolvedPath | undefined) => void
 }
 
 /** One plugin lifetime; batches execute serially and failures never enter the cache. */
 export class ResourceLinksRuntime implements ChatTextLinks {
-  private readonly cache = new Map<string, { expires: number; value: FileManagerResolvedPath }>()
+  private readonly cache = new Map<string, { expires: number; value: UserFileResolvedPath }>()
   private readonly pending = new Map<string, Pending>()
   private readonly queue: Pending[] = []
   private readonly controllers = new Set<AbortController>()
@@ -38,8 +35,8 @@ export class ResourceLinksRuntime implements ChatTextLinks {
   private draining = false
   private disposed = false
 
-  /** @param gateway Injected metadata and navigation operations. @param config Validated limits, capped to manager metadata. @param now Instance-local clock for cache expiry. */
-  constructor(private readonly gateway: Gateway, private readonly config: ResourceLinksConfig, private readonly now: () => number = () => performance.now()) {}
+  /** @param gateway Injected metadata and navigation operations. @param config Validated limits, capped to provider metadata. @param now Instance-local clock for cache expiry. */
+  constructor(private readonly gateway: Gateway, private readonly config: UserFileMetadata, private readonly now: () => number = () => performance.now()) {}
 
   /** @param sessionId Source session. @param text Displayed source. @param mode Markdown context; only inline-code discovers filesystem paths. @returns Existing resource ranges; discovery failures stay inert. */
   async resolve(sessionId: SessionId, text: string, mode: Parameters<ChatTextLinks['resolve']>[2]): Promise<readonly TextLink[]> {
@@ -74,19 +71,7 @@ export class ResourceLinksRuntime implements ChatTextLinks {
       const resolved = await this.gateway.resolve(sessionId, path, signal)
       this.assertActive()
       if (resolved.kind !== 'file' && resolved.kind !== 'directory') throw new Error(`Unsupported filesystem resource: ${resolved.path}`)
-      if (this.config.openMode === 'system') {
-        await this.gateway.openSystem(resolved.path, signal)
-      } else if (resolved.kind === 'directory') {
-        await this.gateway.openDirectory(sessionId, resolved.path)
-      } else {
-        await this.gateway.openResource({
-          ref: { sessionId, sourceId: 'filesystem' as ResourceSourceId, resourceId: resolved.path },
-          name: resolved.name,
-          kind: 'file',
-          ...(resolved.size === undefined ? {} : { size: resolved.size }),
-          ...(resolved.mediaType === undefined ? {} : { mediaType: resolved.mediaType }),
-        })
-      }
+      await this.gateway.openFile(sessionId, resolved.path, signal)
     })
   }
 
@@ -115,7 +100,7 @@ export class ResourceLinksRuntime implements ChatTextLinks {
     try { return await task } finally { this.tasks.delete(task); this.controllers.delete(controller) }
   }
 
-  private lookup(sessionId: SessionId, cwd: string | undefined, path: string): Promise<FileManagerResolvedPath | undefined> {
+  private lookup(sessionId: SessionId, cwd: string | undefined, path: string): Promise<UserFileResolvedPath | undefined> {
     const key = JSON.stringify([sessionId, cwd, path])
     const cached = this.cache.get(key)
     if (cached !== undefined) {
@@ -126,7 +111,7 @@ export class ResourceLinksRuntime implements ChatTextLinks {
     if (existing !== undefined) return existing.promise
     if (this.pending.size >= this.config.maxPendingPaths) return Promise.resolve(undefined)
     let finish!: Pending['finish']
-    const promise = new Promise<FileManagerResolvedPath | undefined>(resolve => { finish = resolve })
+    const promise = new Promise<UserFileResolvedPath | undefined>(resolve => { finish = resolve })
     const item: Pending = { key, sessionId, cwd, path, promise, finish }
     this.pending.set(key, item)
     this.queue.push(item)
@@ -147,7 +132,7 @@ export class ResourceLinksRuntime implements ChatTextLinks {
           if (item.sessionId === first.sessionId && item.cwd === first.cwd) batch.push(...this.queue.splice(i, 1))
           else i++
         }
-        let results: readonly FileManagerResolveManyResult[] = []
+        let results: readonly UserFileResolveManyResult[] = []
         try {
           results = await this.track(signal => this.gateway.resolveMany(first.sessionId, batch.map(item => item.path), signal))
         } catch {
