@@ -2,7 +2,7 @@
 
 One authenticated Node provider serves `ctx.userFiles` and the generated `remote.userFiles` namespace. It requires Session and Remote services, independently of sidebar, viewer and manager. The Client mounts its namespace even when Links is disabled and provides the common Host opening policy. Only `enabled: true` contributes `chatTextLinks`; this package never registers a file-open waterfall listener.
 
-Consumers requiring `patchText` declare a provider dependency of `^0.1.3`. Consumers requiring `streamText` declare a provider dependency of `^0.1.2`; ceiling-only consumers require `^0.1.1` or another compatible range excluding earlier versions. Package installation checks enforce that requirement.
+Consumers requiring `deltaText` or the neutral `text-patch` export declare a provider dependency of `^0.1.4`. Consumers requiring `patchText` declare a provider dependency of `^0.1.3`. Consumers requiring `streamText` declare a provider dependency of `^0.1.2`; ceiling-only consumers require `^0.1.1` or another compatible range excluding earlier versions. Package installation checks enforce that requirement.
 
 The public `types` export owns `UserFilePathRequest`, `UserFileResolvedPath`, ordered `UserFileResolveManyResult`, `UserFileReadTextRequest`, text/byte documents and guarded save requests/results. `resolve` and `resolveMany` read metadata only. Session-relative paths use the live Session header or persisted Session metadata, then the service process cwd when the header has none. Absolute paths are not restricted to the workspace. Authenticated UI operations use service-process permissions, independently of agent filesystem or approval policy.
 
@@ -26,6 +26,18 @@ Patches preserve the original UTF-8 BOM and untouched bytes. Within a replacemen
 
 `UserFilePatchResult` contains `{ version, sizeBytes, canonicalHash }`, with no complete text. `canonicalHash` is lowercase SHA-256 of the actual complete canonical LF output, excluding the UTF-8 BOM. Consumers compare it with their local result to detect preserved external edits and reload when needed. Legacy `saveText` remains available with its whole-revision guard. The [range-save decision](../../docs/agent-notes/incremental-text-save.md) records the ownership and preservation policy.
 
+`deltaText(UserFileDeltaRequest)` adds `baseHash`, optional `maxPatchBytes` and optional `background` to text-read approval fields. The lowercase canonical SHA-256 identifies a retained baseline for the resolved canonical path. Results are discriminated by `kind`: `unchanged` contains `{ version, sizeBytes, canonicalHash }`; `patch` adds hash-checked `ranges`; `manual-required` carries reason `base-missing`, `too-large` or `diff-budget`; `busy` carries no content. No outcome silently substitutes complete text. Invalid hashes and byte ceilings return `gateway/bad-request`.
+
+Complete reads, successful stream completion and actual patch-save results establish canonical baselines. The LRU cache bounds both entry count and canonical string storage, conservatively charging two bytes per UTF-16 code unit. Oversized documents are not retained. Stream candidates are individually bounded and published to the cache only after validation; aborted or partial streams contribute no baseline. Disposal clears retained data and prevents late completions from repopulating it. A missing or evicted baseline returns `base-missing` without content reads. A changed file above the conservative cache candidate bound requires a manual read. These cache bounds do not restrict explicit complete reads or saves.
+
+A cached baseline with identical device, inode, size, mode and modification/change timestamps returns unchanged metadata without opening content. Filesystem metadata equality cannot detect a same-size in-place write that preserves all those fields. Changed metadata triggers an ordinary validated content read, subject to the existing confirmation ceiling. The provider compares canonical content and computes line deltas using maintained `diffArrays` with configured timeout and edit-distance limits. Time limits are cooperative; they cannot preempt a synchronous tokenization or library step.
+
+Only `background: true` uses the provider's immediate admission permit. Excess background work returns `busy` without queueing; success, failure and cancellation release the permit. Manual/default delta requests, complete reads and saves bypass it. Consumers stop or back off automatic polling on control responses. An explicit manual refresh can try delta first and choose complete loading after `manual-required` or `busy`.
+
+Patch and unchanged results are bounded by the smaller of `maxDeltaBytes` and the positive safe-integer `maxPatchBytes`. The provider first checks replacement string lengths, then measures the exact UTF-8 bytes of `JSON.stringify({ ok: true, value: result })`, including revision metadata, hash fields and JSON escaping. Oversized results return `manual-required: too-large`. Fixed `busy` and `manual-required` control responses remain available even when a requested cap is smaller than their encoding.
+
+The neutral `text-patch` export provides `diffTextLines(base, local, { timeout?, maxEditLength? }?)`, returning ordered `TextLineChange[]` with `{ startLine, lineCount, oldText, replacement }`, or `undefined` on budget exhaustion. Insertions already include neighboring context and overlapping expanded ranges are merged. Hash `oldText` to form the wire patches. `applyTextPatches(text, ranges, hashText)` asynchronously checks every range before returning canonical output; `hashText` returns a Promise of lowercase SHA-256. Host saves and browser application share the same canonical range validation. Omitted diff limits permit ordinary manual save calculations. The [delta decision](../../docs/agent-notes/bounded-text-deltas.md) records ownership and limits.
+
 | Config | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Enable automatic inline-code file links. |
@@ -34,6 +46,12 @@ Patches preserve the original UTF-8 BOM and untouched bytes. Within a replacemen
 | `maxTextReadBytes` | `1048576` | Inclusive existing text-file bytes loaded without confirmation. |
 | `maxByteReadBytes` | `16777216` | Inclusive byte read/save bytes. |
 | `streamChunkBytes` | `262144` | Positive safe-integer maximum raw bytes per sequential text stream read. |
+| `maxDeltaBytes` | `1048576` | Maximum encoded patch/unchanged success-envelope bytes. |
+| `baselineBytes` | `268435456` | Retained canonical string budget, charging two bytes per UTF-16 code unit. |
+| `baselineEntries` | `16` | Maximum retained path/hash baselines, with LRU eviction. |
+| `deltaConcurrency` | `1` | Maximum admitted background deltas; excess returns busy. |
+| `deltaDiffTimeoutMs` | `100` | Cooperative line-diff time budget. |
+| `deltaMaxEditLength` | `10000` | Maximum jsdiff edit distance before manual refresh is required. |
 | `batchDelayMs` | `10` | Coalescing delay, including zero. |
 | `maxBatchSize` | `128` | Discovery batch count, capped to the provider limit. |
 | `cacheTtlMs` | `5000` | Successful metadata cache lifetime. |

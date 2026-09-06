@@ -6,7 +6,7 @@ import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepse
 import {
   UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
-import type { UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFileDeltaRequest, UserFileDeltaResult, UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -174,6 +174,19 @@ export class UserFileRemote extends TypertRemoteService {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
       return await this.filesystem.patchText(path, request.ranges, signal, request.allowLargeFile, request.maxConfirmedBytes)
+    })
+  }
+
+  /**
+   * Observe a bounded delta from a retained canonical baseline, without an implicit complete-text response.
+   * @param request Session, file, baseline hash and polling limits. @param signal Request cancellation.
+   * @returns Unchanged metadata, range patches, explicit manual-read requirement or background admission refusal.
+   */
+  @Remote('deltaText')
+  async deltaText(request: UserFileDeltaRequest, signal: AbortSignal): Promise<UserFileDeltaResult> {
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
+      return await this.filesystem.deltaText(path, request.baseHash, signal, request)
     })
   }
 

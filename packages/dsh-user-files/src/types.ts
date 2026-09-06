@@ -114,6 +114,22 @@ export interface UserFilePatchResult {
   readonly canonicalHash: string
 }
 
+/** Delta observation from a path-scoped canonical content hash. */
+export interface UserFileDeltaRequest extends UserFileReadTextRequest {
+  readonly baseHash: string
+  /** Optional positive safe-integer result-byte ceiling, capped by provider maxDeltaBytes. */
+  readonly maxPatchBytes?: number
+  /** Only background requests use the non-queueing provider admission permit. */
+  readonly background?: boolean
+}
+
+/** Bounded delta outcome; automatic callers never receive complete text as a fallback. */
+export type UserFileDeltaResult =
+  | ({ readonly kind: 'unchanged' } & UserFilePatchResult)
+  | ({ readonly kind: 'patch'; readonly ranges: readonly UserFileTextPatch[] } & UserFilePatchResult)
+  | { readonly kind: 'manual-required'; readonly reason: 'base-missing' | 'too-large' | 'diff-budget' }
+  | { readonly kind: 'busy' }
+
 /** Opaque revision after a successful replacement. */
 export interface UserFileSaveResult {
   readonly version: UserFileRevision
@@ -121,8 +137,18 @@ export interface UserFileSaveResult {
   readonly sizeBytes?: number
 }
 
+/** Deployment-owned budgets for automatic text deltas and canonical baseline retention. */
+export interface UserFileDeltaPolicy {
+  readonly maxDeltaBytes: number
+  readonly baselineBytes: number
+  readonly baselineEntries: number
+  readonly deltaConcurrency: number
+  readonly deltaDiffTimeoutMs: number
+  readonly deltaMaxEditLength: number
+}
+
 /** Validated deployment policy delivered by the Host metadata Remote. */
-export interface UserFileMetadata {
+export interface UserFileMetadata extends UserFileDeltaPolicy {
   readonly maxResolveBatchSize: number
   /** Inclusive text size accepted without explicit large-file confirmation. */
   readonly maxTextReadBytes: number

@@ -195,3 +195,26 @@ it('publishes range patches through the Cordis service and maps validation, conf
     await rm(root, { recursive: true })
   }
 })
+
+it('transports bounded deltas, background preference and invalid request errors through the service', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-user-files-delta-remote-'))
+  const ctx = new Context()
+  const filesystem = new UserFileFilesystem(1024, 4096)
+  const fiber = ctx.plugin({ apply: (scope: Context) => { new UserFileRemote(scope, filesystem, Config({})) } })
+  try {
+    const path = join(root, 'file.txt')
+    await writeFile(path, 'old')
+    await fiber.await()
+    const remote = ctx.get('userFiles') as UserFileRemote
+    const signal = new AbortController().signal
+    const request = { sessionId: 'delta' as SessionId, path, baseHash: createHash('sha256').update('old').digest('hex'), background: true }
+    expect(await remote.deltaText(request, signal)).toEqual({ kind: 'manual-required', reason: 'base-missing' })
+    await remote.readText(request, signal)
+    expect((await remote.deltaText(request, signal)).kind).toBe('unchanged')
+    await writeFile(path, 'changed')
+    expect((await remote.deltaText({ ...request, background: false }, signal)).kind).toBe('patch')
+    await expect(remote.deltaText({ ...request, maxPatchBytes: 0 }, signal)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    await expect(remote.deltaText({ ...request, baseHash: 'bad' }, signal)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    await expect(remote.deltaText(request, AbortSignal.abort())).rejects.toMatchObject({ code: 'gateway/cancelled' })
+  } finally { await fiber.dispose(); await rm(root, { recursive: true }) }
+})

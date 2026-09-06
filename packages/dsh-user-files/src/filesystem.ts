@@ -5,9 +5,11 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { lookup as lookupMediaType } from 'mime-types'
+import { defaultDeltaPolicy } from './delta-policy.ts'
+import { diffTextLines, prepareTextPatches, validateTextPatchRanges, TextPatchError } from './text-patch.ts'
 import type {
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
-  UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent, UserFileTextPatch, UserFilePatchResult,
+  UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent, UserFileTextPatch, UserFilePatchResult, UserFileDeltaRequest, UserFileDeltaResult, UserFileDeltaPolicy,
 } from './types.ts'
 
 /** Stable user-filesystem failures translated by the Host Remote. */
@@ -176,16 +178,6 @@ function lineEnding(line: string | undefined): string | undefined {
   return line?.match(/\r\n$|\r$|\n$/u)?.[0]
 }
 
-function patchRanges(path: string, ranges: readonly UserFileTextPatch[]): readonly UserFileTextPatch[] {
-  return ranges.map(range => {
-    if (!/^[a-f\d]{64}$/u.test(range.expectedHash)
-      || /[\r\0]/u.test(range.replacement) || !range.replacement.isWellFormed()) {
-      throw new UserFileFilesystemError('invalid-request', path, 'text patches require lowercase SHA-256 hashes and well-formed canonical LF text')
-    }
-    return { ...range }
-  })
-}
-
 function replacementLines(lines: readonly string[], range: UserFileTextPatch): string {
   const old = lines.slice(range.startLine, range.startLine + range.lineCount)
   const replacement = lineTokens(range.replacement)
@@ -203,19 +195,9 @@ function replacementLines(lines: readonly string[], range: UserFileTextPatch): s
   }).join('')
 }
 
-function patchedBytes(current: ReadBytesResult, ranges: readonly UserFileTextPatch[]): Uint8Array {
+async function patchedBytes(current: ReadBytesResult, ranges: readonly UserFileTextPatch[]): Promise<Uint8Array> {
   const lines = lineTokens(decodeText(current.bytes, current.path))
-  let end = 0
-  for (const range of ranges) {
-    const emptyInsertion = lines.length === 0 && ranges.length === 1 && range.startLine === 0 && range.lineCount === 0
-    if (!Number.isSafeInteger(range.startLine) || !Number.isSafeInteger(range.lineCount)
-      || range.startLine < end || range.lineCount < 0 || (range.lineCount === 0 && !emptyInsertion)
-      || range.startLine + range.lineCount > lines.length
-      || sha256(Buffer.from(canonicalText(lines.slice(range.startLine, range.startLine + range.lineCount).join('')))) !== range.expectedHash) {
-      throw new UserFileFilesystemError('stale-version', current.path, `text patch range in "${current.path}" no longer matches`)
-    }
-    end = range.startLine + range.lineCount
-  }
+  await validateTextPatchRanges(lines.map(canonicalText), ranges, async text => sha256(Buffer.from(text)))
   const output: string[] = []
   let position = 0
   for (const range of ranges) {
@@ -241,6 +223,7 @@ function restoreEol(text: string, revision: RevisionPayload): string {
 
 function mapNodeError(error: unknown, path: string): UserFileFilesystemError {
   if (error instanceof UserFileFilesystemError) return error
+  if (error instanceof TextPatchError) return new UserFileFilesystemError(error.code, path, error.message, { cause: error })
   const code = typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: unknown }).code)
     : ''
@@ -280,11 +263,17 @@ export class UserFileFilesystem {
   readonly #maxTextReadBytes: number
   readonly #maxByteReadBytes: number
   #mutationTail: Promise<void> = Promise.resolve()
+  readonly #deltaPolicy: UserFileDeltaPolicy
+  readonly #baselines = new Map<string, { text: string; payload: RevisionPayload; metadata: UserFilePatchResult; cost: number }>()
+  #baselineBytes = 0
+  #activeDeltas = 0
+  #disposed = false
 
-  /** @param maxTextReadBytes Inclusive text confirmation threshold. @param maxByteReadBytes Inclusive byte bound. */
-  constructor(maxTextReadBytes: number, maxByteReadBytes: number) {
+  /** @param maxTextReadBytes Inclusive text confirmation threshold. @param maxByteReadBytes Inclusive byte bound. @param deltaPolicy Validated delta and baseline budgets. */
+  constructor(maxTextReadBytes: number, maxByteReadBytes: number, deltaPolicy: UserFileDeltaPolicy = defaultDeltaPolicy) {
     this.#maxTextReadBytes = maxTextReadBytes
     this.#maxByteReadBytes = maxByteReadBytes
+    this.#deltaPolicy = { ...deltaPolicy }
   }
 
   /** Follow one existing path and return metadata without reading file content. */
@@ -310,11 +299,14 @@ export class UserFileFilesystem {
     const decoded = decodeText(result.bytes, result.path)
     const metadata = eolMetadata(decoded)
     const payload: RevisionPayload = { ...result.payload, ...metadata }
-    return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload), sizeBytes: result.payload.stat.size }
+    const text = canonicalText(decoded)
+    const version = !this.#disposed && text.length * 2 <= this.#deltaPolicy.baselineBytes
+      ? this.#remember(text, payload).version : encodeRevision(payload)
+    return { path: result.path, text, version, sizeBytes: result.payload.stat.size }
   }
 
   /**
-   * Stream canonical LF text without retaining complete content; completion validates raw bytes, EOLs and file identity.
+   * Stream canonical LF text; only bounded cache candidates are retained, and completion validates raw bytes, EOLs and file identity.
    * @param path File to load. @param signal Cancellation closes the file and prevents completion.
    * @param streamChunkBytes Maximum raw bytes per read, as a positive safe integer.
    * @param allowLargeFile Explicit confirmation. @param maxConfirmedBytes Optional inclusive existing-file ceiling.
@@ -345,6 +337,8 @@ export class UserFileFilesystem {
         this.#checkSize(canonical, info.size, policy)
         const before = exactStat(info)
         signal.throwIfAborted()
+        let candidate: string[] | undefined = !this.#disposed && before.size <= this.#deltaPolicy.baselineBytes / 2 ? [] : undefined
+        let candidateBytes = 0
         yield { kind: 'start', path: canonical, sizeBytes: before.size }
         signal.throwIfAborted()
         const buffer = Buffer.alloc(Math.min(streamChunkBytes, before.size))
@@ -364,7 +358,13 @@ export class UserFileFilesystem {
           if (pendingCr) decoded = decoded.slice(0, -1)
           const pattern = eolPattern(decoded)
           if (pattern) patterns.push(pattern)
-          return canonicalText(decoded)
+          const text = canonicalText(decoded)
+          if (candidate !== undefined) {
+            candidateBytes += text.length * 2
+            if (!this.#disposed && candidateBytes <= this.#deltaPolicy.baselineBytes) candidate.push(text)
+            else candidate = undefined
+          }
+          return text
         }
         while (bytesRead < before.size) {
           signal.throwIfAborted()
@@ -390,9 +390,10 @@ export class UserFileFilesystem {
         }
         await close()
         signal.throwIfAborted()
-        const version = encodeRevision({
+        const payload: RevisionPayload = {
           format: 1, path: canonical, stat: before, sha256: hash.digest('hex'), ...eolMetadataOfPattern(patterns.join('')),
-        })
+        }
+        const version = candidate === undefined ? encodeRevision(payload) : this.#remember(candidate.join(''), payload).version
         yield { kind: 'complete', version, sizeBytes: bytesRead }
       } finally {
         signal.removeEventListener('abort', onAbort)
@@ -449,18 +450,18 @@ export class UserFileFilesystem {
     path: string, ranges: readonly UserFileTextPatch[], signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number,
   ): Promise<UserFilePatchResult> {
     const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
-    const patches = patchRanges(path, ranges)
+    let patches: readonly UserFileTextPatch[]
+    try { patches = prepareTextPatches(ranges) } catch (error: unknown) { throw mapNodeError(error, path) }
     return await this.mutate(signal, async () => {
       const initial = await this.#readFileBytes(path, signal, policy)
-      const saved = patches.length === 0
-        ? initial
-        : await this.#replace(initial.path, initial.payload, patchedBytes(initial, patches), signal, policy)
-      const text = decodeText(saved.bytes, saved.path)
-      return {
-        version: encodeRevision({ ...saved.payload, ...eolMetadata(text) }),
-        sizeBytes: saved.payload.stat.size,
-        canonicalHash: sha256(Buffer.from(canonicalText(text))),
+      let saved = initial
+      if (patches.length > 0) {
+        let bytes: Uint8Array
+        try { bytes = await patchedBytes(initial, patches) } catch (error: unknown) { throw mapNodeError(error, path) }
+        saved = await this.#replace(initial.path, initial.payload, bytes, signal, policy)
       }
+      const text = decodeText(saved.bytes, saved.path)
+      return this.#remember(canonicalText(text), { ...saved.payload, ...eolMetadata(text) })
     })
   }
 
@@ -541,6 +542,106 @@ export class UserFileFilesystem {
       if (staged) {
         try { await rm(stage, { force: true }) } catch { /* A failed stage cleanup cannot replace the primary failure. */ }
       }
+    }
+  }
+
+  /** Release retained baselines and prevent in-flight completions from repopulating the disposed provider. */
+  dispose(): void {
+    this.#disposed = true
+    this.#baselines.clear()
+    this.#baselineBytes = 0
+  }
+
+  #remember(text: string, payload: RevisionPayload): UserFilePatchResult {
+    const metadata = { version: encodeRevision(payload), sizeBytes: payload.stat.size, canonicalHash: sha256(Buffer.from(text)) }
+    const cost = text.length * 2
+    if (this.#disposed || cost > this.#deltaPolicy.baselineBytes) return metadata
+    const key = payload.path + '\0' + metadata.canonicalHash
+    const existing = this.#baselines.get(key)
+    if (existing !== undefined) { this.#baselineBytes -= existing.cost; this.#baselines.delete(key) }
+    while (this.#baselines.size >= this.#deltaPolicy.baselineEntries || this.#baselineBytes + cost > this.#deltaPolicy.baselineBytes) {
+      const oldest = this.#baselines.keys().next().value!
+      this.#baselineBytes -= this.#baselines.get(oldest)!.cost
+      this.#baselines.delete(oldest)
+    }
+    this.#baselines.set(key, { text, payload, metadata, cost })
+    this.#baselineBytes += cost
+    return metadata
+  }
+
+  #boundedDelta(result: Extract<UserFileDeltaResult, { kind: 'patch' | 'unchanged' }>, limit: number): UserFileDeltaResult {
+    // UTF-16 lengths are a cheap lower bound; JSON escaping and UTF-8 are measured only for bounded candidates.
+    let minimumBytes = result.version.length
+    if (result.kind === 'patch') {
+      for (const range of result.ranges) {
+        minimumBytes += range.replacement.length + range.expectedHash.length
+        if (minimumBytes > limit) return { kind: 'manual-required', reason: 'too-large' }
+      }
+    }
+    if (minimumBytes > limit || Buffer.byteLength(JSON.stringify({ ok: true, value: result })) > limit) {
+      return { kind: 'manual-required', reason: 'too-large' }
+    }
+    return result
+  }
+
+  /**
+   * Read a bounded delta from a path-scoped retained canonical baseline.
+   * @param path Existing text file. @param baseHash Lowercase canonical SHA-256. @param signal Request cancellation.
+   * @param request Approval, response ceiling and background admission preference.
+   * @returns Metadata, hash-checked patches, manual-read requirement or a non-queued busy response.
+   */
+  async deltaText(
+    path: string, baseHash: string, signal: AbortSignal,
+    request: Pick<UserFileDeltaRequest, 'allowLargeFile' | 'maxConfirmedBytes' | 'maxPatchBytes' | 'background'> = {},
+  ): Promise<UserFileDeltaResult> {
+    signal.throwIfAborted()
+    const policy = this.#textPolicy(path, request.allowLargeFile === true, request.maxConfirmedBytes)
+    if (!/^[a-f\d]{64}$/u.test(baseHash) || (request.maxPatchBytes !== undefined
+      && (!Number.isSafeInteger(request.maxPatchBytes) || request.maxPatchBytes <= 0))) {
+      throw new UserFileFilesystemError('invalid-request', path, 'delta requests require a lowercase SHA-256 and positive safe-integer byte ceiling')
+    }
+    const limit = Math.min(this.#deltaPolicy.maxDeltaBytes, request.maxPatchBytes ?? this.#deltaPolicy.maxDeltaBytes)
+    const input = normalizedAbsolute(path)
+    const background = request.background === true
+    if (background && this.#activeDeltas >= this.#deltaPolicy.deltaConcurrency) return { kind: 'busy' }
+    if (background) this.#activeDeltas++
+    try {
+      const canonical = await realpath(input)
+      const info = await stat(canonical)
+      signal.throwIfAborted()
+      if (!info.isFile()) throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+      this.#checkSize(canonical, info.size, policy)
+      const key = canonical + '\0' + baseHash
+      const baseline = this.#baselines.get(key)
+      if (baseline === undefined) return { kind: 'manual-required', reason: 'base-missing' }
+      this.#baselines.delete(key)
+      this.#baselines.set(key, baseline)
+      if (sameStat(baseline.payload.stat, exactStat(info))) return this.#boundedDelta({ kind: 'unchanged', ...baseline.metadata }, limit)
+      if (info.size > this.#deltaPolicy.baselineBytes / 2) return { kind: 'manual-required', reason: 'too-large' }
+      const current = await this.#readFileBytes(canonical, signal, policy)
+      const decoded = decodeText(current.bytes, canonical)
+      const text = canonicalText(decoded)
+      const metadata = this.#remember(text, { ...current.payload, ...eolMetadata(decoded) })
+      if (metadata.canonicalHash === baseHash) return this.#boundedDelta({ kind: 'unchanged', ...metadata }, limit)
+      const changes = diffTextLines(baseline.text, text, {
+        timeout: this.#deltaPolicy.deltaDiffTimeoutMs, maxEditLength: this.#deltaPolicy.deltaMaxEditLength,
+      })
+      signal.throwIfAborted()
+      if (changes === undefined) return { kind: 'manual-required', reason: 'diff-budget' }
+      const ranges: UserFileTextPatch[] = []
+      let replacementLength = 0
+      for (const change of changes) {
+        replacementLength += change.replacement.length
+        if (replacementLength > limit) return { kind: 'manual-required', reason: 'too-large' }
+        ranges.push({ startLine: change.startLine, lineCount: change.lineCount,
+          replacement: change.replacement, expectedHash: sha256(Buffer.from(change.oldText)) })
+      }
+      return this.#boundedDelta({ kind: 'patch', ranges, ...metadata }, limit)
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw mapNodeError(error, input)
+    } finally {
+      if (background) this.#activeDeltas--
     }
   }
 

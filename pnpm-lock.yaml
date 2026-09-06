@@ -74,6 +74,9 @@ importers:
 
   packages/dsh-user-files:
     dependencies:
+      diff:
+        specifier: 8.0.4
+        version: 8.0.4
       mime-types:
         specifier: ^3.0.2
         version: 3.0.2
@@ -911,6 +914,10 @@ packages:
   dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
+
+  diff@8.0.4:
+    resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
+    engines: {node: '>=0.3.1'}
 
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
@@ -1920,6 +1927,8 @@ snapshots:
   defu@6.1.7: {}
 
   dequal@2.0.3: {}
+
+  diff@8.0.4: {}
 
   dom-accessibility-api@0.5.16: {}
 

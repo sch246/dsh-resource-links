@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { UserFileFilesystem } from './filesystem.ts'
 import { UserFileRemote } from './remote.ts'
+import { defaultDeltaPolicy } from './delta-policy.ts'
 export { UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, normalizedAbsolute, resolveUserPath } from './filesystem.ts'
 export { UserFileRemote } from './remote.ts'
 export type * from './types.ts'
@@ -21,6 +22,12 @@ export const Config: z<Config> = z.object({
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(1048576),
   maxByteReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(16777216),
   streamChunkBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(262144),
+  maxDeltaBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.maxDeltaBytes),
+  baselineBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.baselineBytes),
+  baselineEntries: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.baselineEntries),
+  deltaConcurrency: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.deltaConcurrency),
+  deltaDiffTimeoutMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.deltaDiffTimeoutMs),
+  deltaMaxEditLength: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(defaultDeltaPolicy.deltaMaxEditLength),
   openMode: z.union(['preview', 'system'] as const).default('preview'),
   batchDelayMs: z.number().step(1).min(0).max(2147483647).default(10),
   maxBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
@@ -32,5 +39,7 @@ export const Config: z<Config> = z.object({
 
 /** Mount the single authenticated file provider independently of UI features. */
 export function apply(ctx: Context, config: Config): void {
-  new UserFileRemote(ctx, new UserFileFilesystem(config.maxTextReadBytes, config.maxByteReadBytes), config)
+  const filesystem = new UserFileFilesystem(config.maxTextReadBytes, config.maxByteReadBytes, config)
+  ctx.effect(() => () => filesystem.dispose())
+  new UserFileRemote(ctx, filesystem, config)
 }
