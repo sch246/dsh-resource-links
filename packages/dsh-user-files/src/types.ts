@@ -64,6 +64,12 @@ export interface UserFileTextDocument {
   readonly sizeBytes: number
 }
 
+/** Ordered provisional text fragments; only complete supplies a validated guarded-save revision. */
+export type UserFileTextStreamEvent =
+  | { readonly kind: 'start'; readonly path: string; readonly sizeBytes: number }
+  | { readonly kind: 'chunk'; readonly text: string; readonly bytesRead: number }
+  | { readonly kind: 'complete'; readonly version: UserFileRevision; readonly sizeBytes: number }
+
 /** Exact bounded bytes encoded for JSON transport with their opaque content revision. */
 export interface UserFileBytesDocument {
   readonly path: string
@@ -96,6 +102,8 @@ export interface UserFileMetadata {
   /** Inclusive text size accepted without explicit large-file confirmation. */
   readonly maxTextReadBytes: number
   readonly maxByteReadBytes: number
+  /** Maximum raw bytes per sequential text stream read. */
+  readonly streamChunkBytes: number
   /** Enable automatic inline-code discovery. File access remains available. */
   readonly enabled: boolean
   /** Explicit destination for filesystem resources; resolution precedes either route. */

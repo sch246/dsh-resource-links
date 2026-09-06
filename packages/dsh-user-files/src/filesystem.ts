@@ -7,7 +7,7 @@ import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'no
 import { lookup as lookupMediaType } from 'mime-types'
 import type {
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
-  UserFileSaveResult, UserFileTextDocument,
+  UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent,
 } from './types.ts'
 
 /** Stable user-filesystem failures translated by the Host Remote. */
@@ -138,15 +138,21 @@ function parseRevision(value: UserFileRevision, path: string): RevisionPayload {
   }
 }
 
-function eolMetadata(text: string): Pick<RevisionPayload, 'eol' | 'mixedEolPattern'> {
-  const endings = text.match(/\r\n|\r|\n/g) ?? []
-  if (endings.length === 0) return { eol: 'none' }
-  const symbols = endings.map(value => value === '\r\n' ? 'w' : value === '\r' ? 'r' : 'l')
-  const first = symbols[0]
-  if (symbols.every(value => value === first)) {
-    return { eol: first === 'w' ? 'crlf' : first === 'r' ? 'cr' : 'lf' }
+function eolPattern(text: string): string {
+  return (text.match(/\r\n|\r|\n/g) ?? []).map(value => value === '\r\n' ? 'w' : value === '\r' ? 'r' : 'l').join('')
+}
+
+function eolMetadataOfPattern(pattern: string): Pick<RevisionPayload, 'eol' | 'mixedEolPattern'> {
+  if (pattern.length === 0) return { eol: 'none' }
+  const first = pattern[0]
+  for (const symbol of pattern) {
+    if (symbol !== first) return { eol: 'mixed', mixedEolPattern: pattern }
   }
-  return { eol: 'mixed', mixedEolPattern: symbols.join('') }
+  return { eol: first === 'w' ? 'crlf' : first === 'r' ? 'cr' : 'lf' }
+}
+
+function eolMetadata(text: string): Pick<RevisionPayload, 'eol' | 'mixedEolPattern'> {
+  return eolMetadataOfPattern(eolPattern(text))
 }
 
 function canonicalText(text: string): string {
@@ -245,6 +251,97 @@ export class UserFileFilesystem {
     const metadata = eolMetadata(decoded)
     const payload: RevisionPayload = { ...result.payload, ...metadata }
     return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload), sizeBytes: result.payload.stat.size }
+  }
+
+  /**
+   * Stream canonical LF text without retaining complete content; completion validates raw bytes, EOLs and file identity.
+   * @param path File to load. @param signal Cancellation closes the file and prevents completion.
+   * @param streamChunkBytes Maximum raw bytes per read, as a positive safe integer.
+   * @param allowLargeFile Explicit confirmation. @param maxConfirmedBytes Optional inclusive existing-file ceiling.
+   * @returns Start metadata, provisional text chunks with cumulative raw bytes, and the validated revision.
+   */
+  async *streamText(
+    path: string, signal: AbortSignal, streamChunkBytes: number, allowLargeFile = false, maxConfirmedBytes?: number,
+  ): AsyncIterable<UserFileTextStreamEvent> {
+    signal.throwIfAborted()
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    if (!Number.isSafeInteger(streamChunkBytes) || streamChunkBytes <= 0) {
+      throw new UserFileFilesystemError('invalid-request', path, 'streamChunkBytes must be a positive safe integer')
+    }
+    const input = normalizedAbsolute(path)
+    try {
+      const canonical = await realpath(input)
+      const handle = await open(canonical, 'r')
+      let closing: Promise<void> | undefined
+      const close = (): Promise<void> => closing ??= handle.close()
+      const onAbort = (): void => {
+        void close().catch(() => { /* The finally block awaits and reports this close failure. */ })
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      try {
+        signal.throwIfAborted()
+        const info = await handle.stat()
+        if (!info.isFile()) throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+        this.#checkSize(canonical, info.size, policy)
+        const before = exactStat(info)
+        signal.throwIfAborted()
+        yield { kind: 'start', path: canonical, sizeBytes: before.size }
+        signal.throwIfAborted()
+        const buffer = Buffer.alloc(Math.min(streamChunkBytes, before.size))
+        const hash = createHash('sha256')
+        const decoder = new TextDecoder('utf-8', { fatal: true })
+        const patterns: string[] = []
+        let pendingCr = ''
+        let bytesRead = 0
+        const decode = (bytes: Uint8Array | undefined, final: boolean): string => {
+          let decoded: string
+          try {
+            decoded = pendingCr + decoder.decode(bytes, { stream: !final })
+          } catch (error: unknown) {
+            throw new UserFileFilesystemError('not-text', canonical, `path "${canonical}" is not UTF-8 text`, { cause: error })
+          }
+          pendingCr = !final && decoded.endsWith('\r') ? '\r' : ''
+          if (pendingCr) decoded = decoded.slice(0, -1)
+          const pattern = eolPattern(decoded)
+          if (pattern) patterns.push(pattern)
+          return canonicalText(decoded)
+        }
+        while (bytesRead < before.size) {
+          signal.throwIfAborted()
+          const result = await handle.read(buffer, 0, Math.min(buffer.length, before.size - bytesRead), bytesRead)
+          signal.throwIfAborted()
+          if (result.bytesRead === 0) {
+            throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" ended before its recorded size`)
+          }
+          const bytes = buffer.subarray(0, result.bytesRead)
+          if (bytes.includes(0)) throw new UserFileFilesystemError('not-text', canonical, `path "${canonical}" contains NUL bytes`)
+          hash.update(bytes)
+          bytesRead += result.bytesRead
+          yield { kind: 'chunk', text: decode(bytes, false), bytesRead }
+        }
+        signal.throwIfAborted()
+        const tail = decode(undefined, true)
+        if (tail) yield { kind: 'chunk', text: tail, bytesRead }
+        signal.throwIfAborted()
+        const after = exactStat(await handle.stat())
+        const current = exactStat(await stat(canonical))
+        if (!sameStat(before, after) || !sameStat(before, current)) {
+          throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed while it was read`)
+        }
+        await close()
+        signal.throwIfAborted()
+        const version = encodeRevision({
+          format: 1, path: canonical, stat: before, sha256: hash.digest('hex'), ...eolMetadataOfPattern(patterns.join('')),
+        })
+        yield { kind: 'complete', version, sizeBytes: bytesRead }
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+        await close()
+      }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw mapNodeError(error, input)
+    }
   }
 
   /** Read complete bounded bytes without applying text validation or normalization. */

@@ -6,7 +6,7 @@ import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepse
 import {
   UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
-import type { UserFileMetadata, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -120,6 +120,22 @@ export class UserFileRemote extends TypertRemoteService {
     })
   }
 
+  /**
+   * Stream provisional canonical text and return a revision only after complete validation.
+   * @param request Session, file and confirmation ceiling. @param signal Cancellation closes the stream.
+   * @returns Ordered start, chunk and complete events; failures retain the normal user-files Remote errors.
+   */
+  @Remote({ mode: 'stream' })
+  async *streamText(request: UserFileReadTextRequest, signal: AbortSignal): AsyncIterable<UserFileTextStreamEvent> {
+    try {
+      signal.throwIfAborted()
+      const path = await this.absolute(request, signal)
+      yield* this.filesystem.streamText(path, signal, this.configMetadata.streamChunkBytes, request.allowLargeFile, request.maxConfirmedBytes)
+    } catch (error: unknown) {
+      this.rethrow(signal, error)
+    }
+  }
+
   /** Read exact bounded bytes without text decoding. */
   @Remote('readBytes')
   async readBytes(request: UserFilePathRequest, signal: AbortSignal): Promise<UserFileBytesDocument> {
@@ -183,24 +199,28 @@ export class UserFileRemote extends TypertRemoteService {
       signal.throwIfAborted()
       return await operation()
     } catch (error: unknown) {
-      if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw cancelled(error)
-      if (error instanceof UserFileConfirmationRequiredError) {
-        throw new RemoteError('user-files/confirmation-required', error.message, {
-          path: error.path, sizeBytes: error.sizeBytes, thresholdBytes: error.thresholdBytes,
-        }, { cause: error })
-      }
-      if (!(error instanceof UserFileFilesystemError)) throw error
-      if (error.code === 'invalid-request') {
-        throw new RemoteError('gateway/bad-request', error.message, {}, { cause: error })
-      }
-      const details = error.code === 'too-large'
-        ? {
-            path: error.path,
-            maxTextReadBytes: this.configMetadata.maxTextReadBytes,
-            maxByteReadBytes: this.configMetadata.maxByteReadBytes,
-          }
-        : { path: error.path }
-      throw new RemoteError(`user-files/${error.code}` as keyof import('@deepseek-ai/dsh-typert-protocol').RemoteErrorDetailsMap, error.message, details, { cause: error })
+      this.rethrow(signal, error)
     }
+  }
+
+  private rethrow(signal: AbortSignal, error: unknown): never {
+    if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw cancelled(error)
+    if (error instanceof UserFileConfirmationRequiredError) {
+      throw new RemoteError('user-files/confirmation-required', error.message, {
+        path: error.path, sizeBytes: error.sizeBytes, thresholdBytes: error.thresholdBytes,
+      }, { cause: error })
+    }
+    if (!(error instanceof UserFileFilesystemError)) throw error
+    if (error.code === 'invalid-request') {
+      throw new RemoteError('gateway/bad-request', error.message, {}, { cause: error })
+    }
+    const details = error.code === 'too-large'
+      ? {
+          path: error.path,
+          maxTextReadBytes: this.configMetadata.maxTextReadBytes,
+          maxByteReadBytes: this.configMetadata.maxByteReadBytes,
+        }
+      : { path: error.path }
+    throw new RemoteError(`user-files/${error.code}` as keyof import('@deepseek-ai/dsh-typert-protocol').RemoteErrorDetailsMap, error.message, details, { cause: error })
   }
 }

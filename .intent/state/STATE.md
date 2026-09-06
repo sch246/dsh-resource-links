@@ -14,6 +14,8 @@ All file clicks use the common Host opening request. Viewer can handle supported
 
 Large text files require an explicit confirmation opportunity rather than a permanent refusal. Shared file access checks the existing file size before reading content and reports the actual size and configured threshold when confirmation is needed. Confirmation governs loading existing disk content, including save revision checks. Local edits may grow beyond the threshold and save successfully without another prompt; byte operations retain their configured bound. Consumers carry explicit confirmation and any confirmed size ceiling on related text requests. If unseen disk content grows beyond that ceiling, metadata triggers another confirmation before loading it. Consumers using the ceiling declare a compatible provider range starting at version 0.1.1, so installation rejects a provider that ignores it. Read and save responses provide exact disk byte counts so consumers can track size without repeatedly encoding local edits. Preserve cancellation and guarded-save behavior. The [package reference](../../packages/dsh-user-files/README.md) owns the request flag and typed error fields.
 
+Progressive text loading delivers metadata before content, sequential canonical-text fragments with raw-byte progress, and a validated revision only after the complete file is read. Keep partial content provisional and discard it on failure; cancellation or early consumer exit releases the file. Consumers requiring this stream API declare a compatible provider range starting at version 0.1.2. The provider configuration owns the raw read chunk size. Complete-document reads remain available for consumers that need them.
+
 ## Installation map
 
 ### Select capabilities and configuration

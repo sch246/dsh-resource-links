@@ -2,13 +2,17 @@
 
 One authenticated Node provider serves `ctx.userFiles` and the generated `remote.userFiles` namespace. It requires Session and Remote services, independently of sidebar, viewer and manager. The Client mounts its namespace even when Links is disabled and provides the common Host opening policy. Only `enabled: true` contributes `chatTextLinks`; this package never registers a file-open waterfall listener.
 
-Consumers requiring `maxConfirmedBytes` support declare a provider dependency of `^0.1.1` or another compatible range excluding earlier versions. Package installation checks enforce that requirement.
+Consumers requiring `streamText` declare a provider dependency of `^0.1.2`; ceiling-only consumers require `^0.1.1` or another compatible range excluding earlier versions. Package installation checks enforce that requirement.
 
 The public `types` export owns `UserFilePathRequest`, `UserFileResolvedPath`, ordered `UserFileResolveManyResult`, `UserFileReadTextRequest`, text/byte documents and guarded save requests/results. `resolve` and `resolveMany` read metadata only. Session-relative paths use the live Session header or persisted Session metadata, then the service process cwd when the header has none. Absolute paths are not restricted to the workspace. Authenticated UI operations use service-process permissions, independently of agent filesystem or approval policy.
 
 Text reads and save revision checks use `maxTextReadBytes` as an inclusive confirmation threshold. Requests without `allowLargeFile: true` fail above it with typed Remote error `user-files/confirmation-required` and details `{ path, sizeBytes, thresholdBytes }`. Existing file size is checked from metadata before content is read. Confirmation applies to each request, including refreshes and saves; byte-operation limits remain independent.
 
 Optional `maxConfirmedBytes` restricts existing-file reads to an inclusive positive safe-integer ceiling. Without confirmation, the smaller of this ceiling and `maxTextReadBytes` applies; confirmed requests without a ceiling have no provider size cap. A file above the effective ceiling returns `confirmation-required` with that ceiling in `thresholdBytes`. Invalid ceilings fail as `gateway/bad-request` before the addressed file is accessed; direct filesystem methods report `invalid-request`. Local replacement text may grow beyond the ceiling without another confirmation, and the save returns the published revision regardless of that growth.
+
+`streamText` accepts the same request as `readText` and returns an `AsyncIterable<UserFileTextStreamEvent>`. It emits `start { path, sizeBytes }` after metadata and confirmation checks, then `chunk { text, bytesRead }` with canonical LF fragments and cumulative raw byte progress. UTF-8 sequences and CRLF pairs can span chunks; a chunk can contain empty text while decoding is incomplete. Fragments remain provisional until `complete { version, sizeBytes }` validates the raw content hash, EOL convention and unchanged file identity. Short reads, malformed UTF-8, NUL bytes and source mutations reject without completion. Consumers must discard provisional content on failure and allow guarded saves only after completion.
+
+Streaming reads at most `streamChunkBytes` raw bytes at a time and never rereads full content at completion. Cancellation closes the file, including while iteration is paused; consumers also close early by returning from iteration. `readText` retains its complete-document behavior.
 
 Text documents include exact disk `sizeBytes` before EOL normalization. This provider also supplies `sizeBytes` on text and byte save results after publication; the shared save-result field is optional for generic consumers. Consumers can use these observed sizes without re-encoding the editor text after every edit.
 
@@ -21,6 +25,7 @@ Text reads reject malformed UTF-8, NUL bytes and non-regular files, normalize CR
 | `maxResolveBatchSize` | `128` | Inclusive metadata request count. |
 | `maxTextReadBytes` | `1048576` | Inclusive existing text-file bytes loaded without confirmation. |
 | `maxByteReadBytes` | `16777216` | Inclusive byte read/save bytes. |
+| `streamChunkBytes` | `262144` | Positive safe-integer maximum raw bytes per sequential text stream read. |
 | `batchDelayMs` | `10` | Coalescing delay, including zero. |
 | `maxBatchSize` | `128` | Discovery batch count, capped to the provider limit. |
 | `cacheTtlMs` | `5000` | Successful metadata cache lifetime. |

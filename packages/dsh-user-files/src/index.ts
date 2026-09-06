@@ -20,6 +20,7 @@ export const Config: z<Config> = z.object({
   maxResolveBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(1048576),
   maxByteReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(16777216),
+  streamChunkBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(262144),
   openMode: z.union(['preview', 'system'] as const).default('preview'),
   batchDelayMs: z.number().step(1).min(0).max(2147483647).default(10),
   maxBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
