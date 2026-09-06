@@ -13,7 +13,22 @@ The September 6 correction restricts automatic filesystem discovery to actual Ma
 
 The user's broad existing-path goal is implemented through bounded candidate syntax and metadata checks, detailed below. It does not mean every ambiguous word, inaccessible path or unquoted filename containing spaces can be recognized. `preview|system` and no automatic error fallback are recorded implementation decisions in the [ownership note](../../docs/agent-notes/resource-links-ownership.md), not verbatim user requests.
 
+## Intended dependencies and pending migration
+
+The September 6 user correction, “可联动不意味着必依赖”, governs the target composition. Links becomes an optional feature of the shared authenticated user-file provider. That provider supplies path resolution and metadata without requiring sidebar, viewer or manager UI. Viewer and manager independently consume shared file access and sidebar placement; neither feature requires the other or Links. Storing the provider package in an existing repository does not make that repository's UI package a dependency. The extraction and profile migration are pending; the installation map below records the current executable requirements.
+
+| Relationship | Target requirement or optional integration | Current implementation |
+| --- | --- | --- |
+| Links → shared file provider | Required for authoritative path confirmation; the Links toggle controls discovery only. | Metadata still comes from `remote.fileManager`. |
+| Links → Host Chat/open API | Required for display and shared file-open requests. | The Host adapter supplies text decoration; this plugin owns opening policy. |
+| Links → sidebar, viewer, manager UI | Optional integrations through the common opening request; no imports or mandatory injection of these features. | All three currently gate Client registration and must remain installed until cutover. |
+| File click → viewer or manager | Viewer may handle supported files; manager may handle directories. With no handler, use native opening; a handler error propagates. | This plugin directly calls the workbench or Files launcher. |
+
+Migration preserves current link availability by enabling Links for installations that already include resource-links, then removes the old Bundle and its provider/listener. There must be one discovery provider and one shared file provider. Disabling Links leaves shared file access and existing explicit file/session links available. Automatic discovery accepts only parsed inline code and metadata-confirmed paths, with no special acceptance for `/` or `.`. Package versions remain independent; compatibility means supported APIs and declared ranges, never equal version numbers. [Migration record](../logs/2026-09-06-dependency-intent.md) records this documentation-only update.
+
 ## Installation map
+
+This section describes the implementation before the shared-provider cutover. Its required composition is a migration constraint, not the intended permanent dependency graph.
 
 ### Dependencies and contribution owners
 
