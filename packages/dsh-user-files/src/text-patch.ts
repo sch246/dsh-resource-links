@@ -30,6 +30,85 @@ export function textLineTokens(text: string): string[] {
   return text.match(/[^\n]*\n|[^\n]+$/g) ?? []
 }
 
+/** Line-aligned middle texts with one retained insertion neighbor and original line offset. */
+export interface TextLineCrop {
+  readonly base: string
+  readonly local: string
+  readonly startLine: number
+}
+
+/**
+ * Remove equal outer lines before either backend tokenizes or writes native snapshots.
+ * @param base Canonical original text. @param local Canonical replacement text.
+ * @param check Cooperative budget checkpoint; false stops scanning, exceptions propagate.
+ * @returns Middle texts and their original line offset, or undefined on budget exhaustion.
+ */
+export function cropTextLines(base: string, local: string, check: () => boolean): TextLineCrop | undefined {
+  // Bound each equality comparison and newline search, including documents with very long lines.
+  const chunkSize = 4096
+  let prefix = 0
+  let lineStart = 0
+  let previousLineStart = 0
+  let lines = 0
+  const limit = Math.min(base.length, local.length)
+  while (prefix < limit) {
+    if (!check()) return undefined
+    const end = Math.min(prefix + chunkSize, limit)
+    const oldChunk = base.slice(prefix, end)
+    const newChunk = local.slice(prefix, end)
+    let equal = oldChunk.length
+    if (oldChunk !== newChunk) {
+      equal = 0
+      while (equal < oldChunk.length && oldChunk[equal] === newChunk[equal]) equal++
+    }
+    for (let lf = oldChunk.indexOf('\n'); lf >= 0 && lf < equal; lf = oldChunk.indexOf('\n', lf + 1)) {
+      previousLineStart = lineStart
+      lineStart = prefix + lf + 1
+      lines++
+    }
+    prefix += equal
+    if (equal < oldChunk.length) break
+  }
+  if (!check()) return undefined
+  if (prefix === base.length && prefix === local.length) return { base: '', local: '', startLine: 0 }
+
+  let suffix = 0
+  const suffixLimit = Math.min(base.length - lineStart, local.length - lineStart)
+  while (suffix < suffixLimit) {
+    if (!check()) return undefined
+    const size = Math.min(chunkSize, suffixLimit - suffix)
+    const oldChunk = base.slice(base.length - suffix - size, base.length - suffix)
+    const newChunk = local.slice(local.length - suffix - size, local.length - suffix)
+    let equal = size
+    if (oldChunk !== newChunk) {
+      equal = 0
+      while (equal < size && oldChunk[size - equal - 1] === newChunk[size - equal - 1]) equal++
+    }
+    suffix += equal
+    if (equal < size) break
+  }
+  let oldEnd = base.length - suffix
+  let newEnd = local.length - suffix
+  // A matching suffix may begin inside a line, at different offsets after an insertion.
+  while (oldEnd < base.length && !((oldEnd === 0 || base[oldEnd - 1] === '\n')
+    && (newEnd === 0 || local[newEnd - 1] === '\n'))) {
+    if ((oldEnd & (chunkSize - 1)) === 0 && !check()) return undefined
+    oldEnd++
+    newEnd++
+  }
+  const start = lines > 0 ? previousLineStart : 0
+  // At the beginning of a nonempty document, an insertion guards the following line.
+  if (oldEnd === start && base.length > start) {
+    do {
+      if ((oldEnd & (chunkSize - 1)) === 0 && !check()) return undefined
+      oldEnd++
+      newEnd++
+    } while (oldEnd < base.length && base[oldEnd - 1] !== '\n')
+  }
+  if (!check()) return undefined
+  return { base: base.slice(start, oldEnd), local: local.slice(start, newEnd), startLine: Math.max(0, lines - 1) }
+}
+
 /**
  * Compute ordered, disjoint line changes, expanding pure insertions into neighboring context.
  * @param base Canonical original text. @param local Canonical replacement text. @param options Optional computation limits.
@@ -37,8 +116,10 @@ export function textLineTokens(text: string): string[] {
  */
 export function diffTextLines(base: string, local: string, options: TextLineDiffOptions = {}): TextLineChange[] | undefined {
   const deadline = Date.now() + (options.timeout ?? Infinity)
-  const oldLines = textLineTokens(base)
-  const newLines = textLineTokens(local)
+  const middle = cropTextLines(base, local, () => Date.now() <= deadline)
+  if (middle === undefined) return undefined
+  const oldLines = textLineTokens(middle.base)
+  const newLines = textLineTokens(middle.local)
   if (Date.now() > deadline) return undefined
   const changes = diffArrays(oldLines, newLines, { timeout: deadline - Date.now(),
     ...(options.maxEditLength === undefined ? {} : { maxEditLength: options.maxEditLength }) })
@@ -65,7 +146,7 @@ export function diffTextLines(base: string, local: string, options: TextLineDiff
     }
   }
   flush()
-  return materializeTextLineRanges(oldLines, newLines, ranges)
+  return materializeTextLineRanges(oldLines, newLines, ranges, middle.startLine)
 }
 
 /** Ordered original/replacement token coordinates, before insertion context expansion. */
@@ -79,10 +160,11 @@ export interface TextLineRange {
 /**
  * Expand insertion context and merge adjacent ranges for both diff backends.
  * @param oldLines Original LF tokens. @param newLines Replacement LF tokens. @param changes Ordered disjoint changes.
+ * @param startLine Original line offset of the supplied tokens.
  * @returns Hash-ready original-coordinate changes; input coordinates are not mutated.
  */
 export function materializeTextLineRanges(
-  oldLines: readonly string[], newLines: readonly string[], changes: readonly TextLineRange[],
+  oldLines: readonly string[], newLines: readonly string[], changes: readonly TextLineRange[], startLine = 0,
 ): TextLineChange[] {
   const ranges: TextLineRange[] = []
   for (const change of changes) {
@@ -98,7 +180,7 @@ export function materializeTextLineRanges(
     } else ranges.push(pending)
   }
   return ranges.map(range => ({
-    startLine: range.oldFrom, lineCount: range.oldTo - range.oldFrom,
+    startLine: startLine + range.oldFrom, lineCount: range.oldTo - range.oldFrom,
     oldText: oldLines.slice(range.oldFrom, range.oldTo).join(''),
     replacement: newLines.slice(range.newFrom, range.newTo).join(''),
   }))

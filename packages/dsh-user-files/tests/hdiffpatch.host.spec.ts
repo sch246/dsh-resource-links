@@ -57,7 +57,7 @@ it('auto missing uses builtin through deltaText while explicit missing is visibl
   if (delta.kind !== 'patch') throw new Error('expected patch')
   expect(await applyTextPatches('a\nb\nc', delta.ranges, hash)).toBe('a\ninsert\nb\nc\n')
   expect(await apply('a', await backend(missing, 'builtin').diff('a', 'b', signal))).toBe('b')
-  await expect(backend(missing, 'hdiffpatch').diff('a', 'b', signal)).rejects.toMatchObject({ name: 'NativeDiffError', incompatible: true })
+  await expect(backend(missing, 'hdiffpatch').diff('a', 'a', signal)).rejects.toMatchObject({ name: 'NativeDiffError', incompatible: true })
   expect(() => Config({ diffBackend: 'other' })).toThrow()
   expect(() => Config({ hdiffpatchCommand: '  ' })).toThrow()
 })
@@ -73,12 +73,15 @@ it.skipIf(process.platform === 'win32')('caches incompatible auto commands befor
 })
 
 it.skipIf(process.platform === 'win32')('validates equal whole lines inside additive covers and bounds malformed output and edit work', async () => {
-  const base = 'α\nold\nkeep\ntail'
-  const local = 'α\nNEW\nkeep\ntail'
+  const base = 'α\nold\nkeep\ntail\nold-end'
+  const local = 'α\nNEW\nkeep\ntail\nNEW-end'
   const data = fullCover(Buffer.byteLength(base))
   const executable = await command(`${version}\nrequire('node:fs').writeFileSync(process.argv.at(-1), Buffer.from('${data.toString('hex')}', 'hex'))`)
   const changes = await backend(executable, 'hdiffpatch').diff(base, local, signal)
-  expect(changes).toEqual([{ startLine: 1, lineCount: 1, oldText: 'old\n', replacement: 'NEW\n' }])
+  expect(changes).toEqual([
+    { startLine: 1, lineCount: 1, oldText: 'old\n', replacement: 'NEW\n' },
+    { startLine: 4, lineCount: 1, oldText: 'old-end', replacement: 'NEW-end' },
+  ])
   expect(await apply(base, changes)).toBe(local)
   expect(await backend(executable, 'hdiffpatch', { deltaMaxEditLength: 1 }).diff(base, local, signal)).toBeUndefined()
   expect(await backend(executable, 'hdiffpatch', { maxDeltaBytes: 1 }).diff(base, local, signal)).toBeUndefined()
@@ -119,5 +122,24 @@ it.runIf(Boolean(process.env.DSH_HDIFFPATCH_TEST_COMMAND))('round-trips cross-li
     .replace('line 20: unchanged text 中文\n', '') + 'terminal'
   const changes = await backend(process.env.DSH_HDIFFPATCH_TEST_COMMAND!, 'hdiffpatch').diff(base, local, signal)
   expect(changes!.length).toBeGreaterThan(1)
+  expect(await apply(base, changes)).toBe(local)
+})
+
+it.skipIf(process.platform === 'win32')('writes only the guarded middle and maps native gaps to original lines after a shifted suffix', async () => {
+  const prefix = '相同🙂\n'.repeat(10000)
+  const suffix = 'unchanged tail\n'.repeat(10000) + 'no final LF'
+  const base = prefix + 'guard\n' + suffix
+  const local = prefix + 'guard\n新增🙂\n' + suffix
+  const oldMiddle = 'guard\n'
+  const newMiddle = 'guard\n新增🙂\n'
+  const data = Buffer.from([...Buffer.from('HDIFF13&\0'), ...uint(Buffer.byteLength(newMiddle)),
+    ...uint(Buffer.byteLength(oldMiddle)), 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  const observed = join(root, 'snapshots.json')
+  const executable = await command(`${version}\nconst fs = require('node:fs')
+fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify(process.argv.slice(3, 5).map(path => fs.readFileSync(path, 'utf8'))))
+fs.writeFileSync(process.argv.at(-1), Buffer.from('${data.toString('hex')}', 'hex'))`)
+  const changes = await backend(executable, 'hdiffpatch').diff(base, local, signal)
+  expect(JSON.parse(await readFile(observed, 'utf8'))).toEqual([oldMiddle, newMiddle])
+  expect(changes).toEqual([{ startLine: 10000, lineCount: 1, oldText: oldMiddle, replacement: newMiddle }])
   expect(await apply(base, changes)).toBe(local)
 })

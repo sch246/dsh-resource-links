@@ -5,8 +5,8 @@ import { mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { diffTextLines, materializeTextLineRanges, textLineTokens } from './text-patch.ts'
-import type { TextLineChange, TextLineRange } from './text-patch.ts'
+import { cropTextLines, diffTextLines, materializeTextLineRanges, textLineTokens } from './text-patch.ts'
+import type { TextLineChange, TextLineCrop, TextLineRange } from './text-patch.ts'
 import type { UserFileDeltaPolicy } from './types.ts'
 
 /** Native command/configuration failures that must remain visible to callers. */
@@ -76,9 +76,9 @@ export function readHdiffCovers(data: Buffer, oldSize: number, newSize: number, 
   return covers
 }
 
-function lineChanges(base: string, local: string, covers: readonly Cover[], maxEdits: number, check: () => void): TextLineChange[] {
-  const oldLines = textLineTokens(base)
-  const newLines = textLineTokens(local)
+function lineChanges(middle: TextLineCrop, covers: readonly Cover[], maxEdits: number, check: () => void): TextLineChange[] {
+  const oldLines = textLineTokens(middle.base)
+  const newLines = textLineTokens(middle.local)
   check()
   const oldStarts = new Map<number, number>()
   let offset = 0
@@ -118,7 +118,7 @@ function lineChanges(base: string, local: string, covers: readonly Cover[], maxE
   }
   gap(oldLines.length, newLines.length)
   check()
-  const changes = materializeTextLineRanges(oldLines, newLines, ranges)
+  const changes = materializeTextLineRanges(oldLines, newLines, ranges, middle.startLine)
   check()
   return changes
 }
@@ -240,10 +240,13 @@ export class TextDeltaBackend {
     try {
       check()
       if (this.#mode === 'builtin' || this.#available === false) return builtin()
+      const middle = cropTextLines(base, local, () => { check(); return true })
+      if (middle === undefined) return undefined
+      if (middle.base === '' && middle.local === '') return []
       directory = await mkdtemp(join(tmpdir(), 'dsh-hdiff-'))
       check()
-      await writeFile(join(directory, 'old'), base, { flag: 'wx', mode: 0o600, signal: jobSignal })
-      await writeFile(join(directory, 'new'), local, { flag: 'wx', mode: 0o600, signal: jobSignal })
+      await writeFile(join(directory, 'old'), middle.base, { flag: 'wx', mode: 0o600, signal: jobSignal })
+      await writeFile(join(directory, 'new'), middle.local, { flag: 'wx', mode: 0o600, signal: jobSignal })
       check()
       await runCommand(this.#command, ['-d', join(directory, 'old'), join(directory, 'new'), join(directory, 'diff')], this.policy.maxDeltaBytes, jobSignal, directory)
       check()
@@ -265,8 +268,8 @@ export class TextDeltaBackend {
           offset += result.bytesRead
         }
       } finally { await handle.close() }
-      const covers = readHdiffCovers(data, Buffer.byteLength(base), Buffer.byteLength(local), check)
-      return lineChanges(base, local, covers, this.policy.deltaMaxEditLength, check)
+      const covers = readHdiffCovers(data, Buffer.byteLength(middle.base), Buffer.byteLength(middle.local), check)
+      return lineChanges(middle, covers, this.policy.deltaMaxEditLength, check)
     } catch (error) {
       signal.throwIfAborted()
       if (error instanceof DiffBudgetError || budget.signal.aborted) return undefined
