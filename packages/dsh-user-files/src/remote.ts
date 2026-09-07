@@ -6,7 +6,7 @@ import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepse
 import {
   UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
-import type { UserFileDeltaRequest, UserFileDeltaResult, UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFileTextReadPlan, UserFileTextChunkRequest, UserFileTextChunk, UserFileFinishTextReadRequest, UserFileDeltaRequest, UserFileDeltaResult, UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -118,6 +118,41 @@ export class UserFileRemote extends TypertRemoteService {
       const path = await this.absolute(request, signal)
       return await this.filesystem.readText(path, signal, request.allowLargeFile, request.maxConfirmedBytes)
     })
+  }
+
+  /**
+   * Prepare raw text chunks without reading content.
+   * @param request File and confirmation ceiling. @param signal Request cancellation. @returns Metadata and stat fingerprint.
+   */
+  @Remote('prepareTextRead')
+  async prepareTextRead(request: UserFileReadTextRequest, signal: AbortSignal): Promise<UserFileTextReadPlan> {
+    return await this.guard(signal, async () => this.filesystem.prepareTextRead(
+      await this.absolute(request, signal), signal, request.allowLargeFile, request.maxConfirmedBytes,
+    ))
+  }
+
+  /**
+   * Load one aligned raw chunk from a prepared file.
+   * @param request File, stat fingerprint, offset and approval. @param signal Cancellation closes the file.
+   * @returns Base64 raw bytes, offset and SHA-256.
+   */
+  @Remote('readTextChunk')
+  async readTextChunk(request: UserFileTextChunkRequest, signal: AbortSignal): Promise<UserFileTextChunk> {
+    return await this.guard(signal, async () => this.filesystem.readTextChunk(
+      await this.absolute(request, signal), request.readVersion, request.offset, signal, request.allowLargeFile, request.maxConfirmedBytes,
+    ))
+  }
+
+  /**
+   * Validate the complete prepared text and establish its canonical baseline.
+   * @param request File, stat fingerprint and approval. @param signal Cancellation closes the file.
+   * @returns Save revision, exact bytes and canonical hash without document content.
+   */
+  @Remote('finishTextRead')
+  async finishTextRead(request: UserFileFinishTextReadRequest, signal: AbortSignal): Promise<UserFilePatchResult> {
+    return await this.guard(signal, async () => this.filesystem.finishTextRead(
+      await this.absolute(request, signal), request.readVersion, signal, request.allowLargeFile, request.maxConfirmedBytes,
+    ))
   }
 
   /**

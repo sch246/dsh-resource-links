@@ -20,6 +20,32 @@ export interface UserFileReadTextRequest extends UserFilePathRequest {
   readonly maxConfirmedBytes?: number
 }
 
+/** Metadata-only plan for independently retryable raw-byte chunks; readVersion is a stat fingerprint, not a save revision. */
+export interface UserFileTextReadPlan {
+  readonly path: string
+  readonly sizeBytes: number
+  readonly chunkBytes: number
+  readonly readVersion: string
+}
+
+/** One aligned raw-byte offset in a prepared file, carrying approval on every request. */
+export interface UserFileTextChunkRequest extends UserFileReadTextRequest {
+  readonly readVersion: string
+  readonly offset: number
+}
+
+/** Exact raw bytes and their lowercase SHA-256; text decoding requires the assembled file. */
+export interface UserFileTextChunk {
+  readonly offset: number
+  readonly dataBase64: string
+  readonly sha256: string
+}
+
+/** Validate the complete current text against the prepared stat fingerprint and establish a save revision. */
+export interface UserFileFinishTextReadRequest extends UserFileReadTextRequest {
+  readonly readVersion: string
+}
+
 /** Existing text file size requiring explicit user confirmation. */
 export interface UserFileConfirmationRequiredDetails {
   readonly path: string
@@ -155,6 +181,8 @@ export interface UserFileMetadata extends UserFileDeltaPolicy {
   readonly maxByteReadBytes: number
   /** Maximum raw bytes per sequential text stream read. */
   readonly streamChunkBytes: number
+  /** Raw bytes per independently retryable text chunk, bounded for Buffer and base64 allocation. */
+  readonly textReadChunkBytes: number
   /** Enable automatic inline-code discovery. File access remains available. */
   readonly enabled: boolean
   /** Explicit destination for filesystem resources; resolution precedes either route. */

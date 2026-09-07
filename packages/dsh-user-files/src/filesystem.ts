@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { constants as bufferConstants } from 'node:buffer'
+import type { FileHandle } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import {
   open, realpath, rename, rm, stat,
@@ -8,9 +10,16 @@ import { lookup as lookupMediaType } from 'mime-types'
 import { defaultDeltaPolicy } from './delta-policy.ts'
 import { diffTextLines, prepareTextPatches, validateTextPatchRanges, TextPatchError } from './text-patch.ts'
 import type {
+  UserFileTextReadPlan, UserFileTextChunk,
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
   UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent, UserFileTextPatch, UserFilePatchResult, UserFileDeltaRequest, UserFileDeltaResult, UserFileDeltaPolicy,
 } from './types.ts'
+
+/** Default raw chunk bytes for Config and standalone filesystem consumers. */
+export const defaultTextReadChunkBytes = 1048576
+
+/** Maximum raw chunk fitting both a Buffer and its base64 string. */
+export const maxTextReadChunkBytes = Math.min(bufferConstants.MAX_LENGTH, Math.floor(bufferConstants.MAX_STRING_LENGTH / 4) * 3)
 
 /** Stable user-filesystem failures translated by the Host Remote. */
 export type UserFileFilesystemErrorCode =
@@ -107,6 +116,16 @@ function sameStat(left: ExactStat, right: ExactStat): boolean {
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
+}
+
+function textReadVersion(path: string, info: ExactStat): string {
+  return sha256(Buffer.from(JSON.stringify({ path, stat: info })))
+}
+
+function validateReadVersion(value: string, path: string): void {
+  if (!/^[a-f\d]{64}$/u.test(value)) {
+    throw new UserFileFilesystemError('invalid-request', path, 'readVersion must be a lowercase SHA-256')
+  }
 }
 
 function encodeRevision(payload: RevisionPayload): UserFileRevision {
@@ -262,6 +281,7 @@ function resolvedMetadata(path: string, info: Stats): UserFileResolvedPath {
 export class UserFileFilesystem {
   readonly #maxTextReadBytes: number
   readonly #maxByteReadBytes: number
+  readonly #textReadChunkBytes: number
   #mutationTail: Promise<void> = Promise.resolve()
   readonly #deltaPolicy: UserFileDeltaPolicy
   readonly #baselines = new Map<string, { text: string; payload: RevisionPayload; metadata: UserFilePatchResult; cost: number }>()
@@ -269,8 +289,12 @@ export class UserFileFilesystem {
   #activeDeltas = 0
   #disposed = false
 
-  /** @param maxTextReadBytes Inclusive text confirmation threshold. @param maxByteReadBytes Inclusive byte bound. @param deltaPolicy Validated delta and baseline budgets. */
-  constructor(maxTextReadBytes: number, maxByteReadBytes: number, deltaPolicy: UserFileDeltaPolicy = defaultDeltaPolicy) {
+  /** @param maxTextReadBytes Inclusive text confirmation threshold. @param maxByteReadBytes Inclusive byte bound. @param deltaPolicy Validated delta and baseline budgets. @param textReadChunkBytes Raw bytes per range request. */
+  constructor(maxTextReadBytes: number, maxByteReadBytes: number, deltaPolicy: UserFileDeltaPolicy = defaultDeltaPolicy, textReadChunkBytes = defaultTextReadChunkBytes) {
+    if (!Number.isSafeInteger(textReadChunkBytes) || textReadChunkBytes <= 0 || textReadChunkBytes > maxTextReadChunkBytes) {
+      throw new UserFileFilesystemError('invalid-request', '', 'textReadChunkBytes exceeds the positive Buffer/base64 allocation range')
+    }
+    this.#textReadChunkBytes = textReadChunkBytes
     this.#maxTextReadBytes = maxTextReadBytes
     this.#maxByteReadBytes = maxByteReadBytes
     this.#deltaPolicy = { ...deltaPolicy }
@@ -303,6 +327,71 @@ export class UserFileFilesystem {
     const version = !this.#disposed && text.length * 2 <= this.#deltaPolicy.baselineBytes
       ? this.#remember(text, payload).version : encodeRevision(payload)
     return { path: result.path, text, version, sizeBytes: result.payload.stat.size }
+  }
+
+  /**
+   * Prepare independently retryable text chunks using metadata only.
+   * @param path File to load. @param signal Request cancellation. @param allowLargeFile Explicit confirmation.
+   * @param maxConfirmedBytes Inclusive confirmed byte ceiling. @returns Canonical path, exact size, chunk bytes and stat fingerprint.
+   */
+  async prepareTextRead(path: string, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFileTextReadPlan> {
+    signal.throwIfAborted()
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    const input = normalizedAbsolute(path)
+    try {
+      const canonical = await realpath(input)
+      const info = await stat(canonical)
+      signal.throwIfAborted()
+      if (!info.isFile()) throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+      this.#checkSize(canonical, info.size, policy)
+      return { path: canonical, sizeBytes: info.size, chunkBytes: this.#textReadChunkBytes, readVersion: textReadVersion(canonical, exactStat(info)) }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw mapNodeError(error, input)
+    }
+  }
+
+  /**
+   * Read one independently retryable raw chunk while checking the prepared file identity before and after content access.
+   * @param path Prepared file. @param readVersion Metadata fingerprint. @param offset Aligned safe-integer raw byte offset.
+   * @param signal Cancellation closes the file. @param allowLargeFile Explicit confirmation. @param maxConfirmedBytes Inclusive byte ceiling.
+   * @returns Exact raw bytes encoded as base64 and their lowercase SHA-256.
+   */
+  async readTextChunk(path: string, readVersion: string, offset: number, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFileTextChunk> {
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    validateReadVersion(readVersion, path)
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset % this.#textReadChunkBytes !== 0) {
+      throw new UserFileFilesystemError('invalid-request', path, 'offset must be a nonnegative safe integer aligned to textReadChunkBytes')
+    }
+    return await this.#withReadFile(path, signal, policy, readVersion, async (handle, canonical, before) => {
+      if (offset >= before.size) throw new UserFileFilesystemError('invalid-request', canonical, 'offset must be below the prepared file size')
+      const bytes = Buffer.alloc(Math.min(this.#textReadChunkBytes, before.size - offset))
+      let received = 0
+      while (received < bytes.length) {
+        signal.throwIfAborted()
+        const result = await handle.read(bytes, received, bytes.length - received, offset + received)
+        signal.throwIfAborted()
+        if (result.bytesRead === 0) {
+          throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" ended before its recorded chunk size`)
+        }
+        received += result.bytesRead
+      }
+      return { offset, dataBase64: bytes.toString('base64'), sha256: sha256(bytes) }
+    })
+  }
+
+  /**
+   * Validate complete UTF-8 content and establish the canonical baseline without returning the document.
+   * @param path Prepared file. @param readVersion Metadata fingerprint. @param signal Cancellation closes the file.
+   * @param allowLargeFile Explicit confirmation. @param maxConfirmedBytes Inclusive confirmed byte ceiling.
+   * @returns Guarded-save revision, exact bytes and complete canonical LF hash, excluding a UTF-8 BOM.
+   */
+  async finishTextRead(path: string, readVersion: string, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFilePatchResult> {
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    validateReadVersion(readVersion, path)
+    const result = await this.#readFileBytes(path, signal, policy, readVersion)
+    const decoded = decodeText(result.bytes, result.path)
+    return this.#remember(canonicalText(decoded), { ...result.payload, ...eolMetadata(decoded) })
   }
 
   /**
@@ -663,36 +752,59 @@ export class UserFileFilesystem {
     }
   }
 
-  async #readFileBytes(path: string, signal: AbortSignal, policy: FileSizePolicy): Promise<ReadBytesResult> {
+  async #readFileBytes(path: string, signal: AbortSignal, policy: FileSizePolicy, readVersion?: string): Promise<ReadBytesResult> {
+    return await this.#withReadFile(path, signal, policy, readVersion, async (handle, canonical, before) => {
+      const bytes = await handle.readFile({ signal })
+      signal.throwIfAborted()
+      if (bytes.byteLength !== before.size) {
+        throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed while it was read`)
+      }
+      return { path: canonical, bytes, payload: { format: 1, path: canonical, stat: before, sha256: sha256(bytes), eol: 'none' } }
+    })
+  }
+
+  async #withReadFile<T>(
+    path: string, signal: AbortSignal, policy: FileSizePolicy, readVersion: string | undefined,
+    read: (handle: FileHandle, canonical: string, before: ExactStat) => Promise<T>,
+  ): Promise<T> {
     signal.throwIfAborted()
     const input = normalizedAbsolute(path)
     try {
       const canonical = await realpath(input)
       const handle = await open(canonical, 'r')
+      let closing: Promise<void> | undefined
+      const close = (): Promise<void> => closing ??= handle.close()
+      const onAbort = (): void => {
+        void close().catch(() => { /* The finally block awaits and reports this close failure. */ })
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
       try {
-        const beforeValue = await handle.stat()
-        if (!beforeValue.isFile()) {
-          throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+        signal.throwIfAborted()
+        const info = await handle.stat()
+        if (!info.isFile()) throw new UserFileFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
+        this.#checkSize(canonical, info.size, policy)
+        const before = exactStat(info)
+        const expected = textReadVersion(canonical, before)
+        if (readVersion !== undefined && readVersion !== expected) {
+          throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed after the read was prepared`)
         }
-        this.#checkSize(canonical, beforeValue.size, policy)
         signal.throwIfAborted()
-        const bytes = await handle.readFile()
+        const result = await read(handle, canonical, before)
         signal.throwIfAborted()
-        const afterValue = await handle.stat()
-        const before = exactStat(beforeValue)
-        const after = exactStat(afterValue)
-        if (!sameStat(before, after) || bytes.byteLength !== before.size) {
+        const after = exactStat(await handle.stat())
+        const currentPath = await realpath(input)
+        const current = exactStat(await stat(currentPath))
+        if (!sameStat(before, after) || textReadVersion(currentPath, current) !== expected) {
           throw new UserFileFilesystemError('stale-version', canonical, `path "${canonical}" changed while it was read`)
         }
-        return {
-          path: canonical,
-          bytes,
-          payload: { format: 1, path: canonical, stat: before, sha256: sha256(bytes), eol: 'none' },
-        }
+        signal.throwIfAborted()
+        return result
       } finally {
-        await handle.close()
+        signal.removeEventListener('abort', onAbort)
+        await close()
       }
     } catch (error: unknown) {
+      signal.throwIfAborted()
       throw mapNodeError(error, input)
     }
   }
