@@ -48,7 +48,8 @@
     "lib/typert.remote-client.js",
     "lib/typert.remote-client.d.ts",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -75,5 +76,6 @@
     "mime-types": "^3.0.2",
     "semver": "^7.7.2",
     "diff": "8.0.4"
-  }
+  },
+  "license": "MIT"
 }

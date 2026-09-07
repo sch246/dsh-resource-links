@@ -1,5 +1,11 @@
 # Resource links installation and maintenance map
 
+## Workspace operation convention
+
+Use the [root operation table](../../README.md#workspace-operations) for `build`, `typecheck`, `setup`, `inspect` and `remove`. The repository root owns development tools, scripts and this intent package; installable artifacts live under `packages/`. Select `DSH_CHECKOUT`, and explicit `DSH_HOME`/`DSH_PROFILE` for profile operations. Setup and removal inspect unless passed `--install` or `--remove`; inspect never mutates. Preserve existing plugin transactions, Host ownership and separate service activation. Build/typecheck/test invoke prepared local Node tools without installing dependencies.
+
+Keep independent repository and package versions. Require compatible API ranges, not equal versions; optional cooperation is not a required dependency. Distribute MIT license text with each package and retain copyright attribution. Record selected installations, verification evidence and historical implementation gaps in [LOG](../logs/2026-09-07-standardized-workspace-operations.md); this map owns intended effects and reusable operations.
+
 Use this map to realize clickable paths on the selected Harness and to maintain that behavior as the Host, environment and user needs change. It supplies intended effects, source locations and an adaptation route. [User feedback and implementation evidence](../logs/2026-09-06-dependency-intent.md) explain its decisions; [LOG](../LOG.md) and the [activation record](../logs/2026-09-05-managed-activation.md) describe particular executions. Those records do not certify another environment.
 
 ## Behavior to provide

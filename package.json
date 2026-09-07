@@ -9,7 +9,9 @@
     "typecheck": "bash scripts/typecheck.sh",
     "test": "bash scripts/test.sh",
     "setup": "bash scripts/setup.sh",
-    "uninstall": "bash scripts/uninstall.sh"
+    "uninstall": "bash scripts/uninstall.sh",
+    "inspect": "bash scripts/setup.sh --check",
+    "remove": "bash scripts/uninstall.sh"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.0-rc",
@@ -37,5 +39,6 @@
     "overrides": {
       "vite": "7.3.6"
     }
-  }
+  },
+  "license": "MIT"
 }

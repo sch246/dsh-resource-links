@@ -1,5 +1,21 @@
 # User files and optional Links for DeepSeek Harness
 
+## Workspace operations
+
+The root is a development workspace; installable packages live under `packages/`. Run these root entries with prepared repository-local dependencies. `DSH_CHECKOUT` selects compatible Host source/declarations; profile operations also require explicit `DSH_HOME` and `DSH_PROFILE`.
+
+| Root entry | Direct command from this repository | Effect |
+| --- | --- | --- |
+| `build` | `bash scripts/build.sh` | Build owned package artifacts. |
+| `typecheck` | `bash scripts/typecheck.sh` | Check owned Host and Client programs. |
+| `setup` | `bash scripts/setup.sh` | Inspect by default; append `--install` for installation. |
+| `inspect` | `bash scripts/setup.sh --check` | Inspect only. |
+| `remove` | `bash scripts/uninstall.sh` | Inspect by default; append `--remove` for removal. |
+
+Build, typecheck and existing tests call installed Node tools directly; they never install dependencies. Tool versions are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with pnpm 10.17.1 declared for explicit dependency preparation. Use independent dependency directories when reusing existing package contents. Installation and removal retain the existing `dsh plugin` transactions and never restart services. The `uninstall` alias, where present, has the same inspection default as `remove`.
+
+Each repository and package keeps its own version: compatibility means satisfying declared API ranges, not equal version numbers. Optional cooperation does not make another feature a required dependency. Root and distributed package licenses are MIT, with their copyright notices retained.
+
 This repository retains the Resource Links history and distributes `@dsh-external/dsh-user-files`: authenticated Session-relative file access plus optional Markdown inline-code links. Viewer, manager and sidebar are independent consumers. The [package reference](packages/dsh-user-files/README.md) owns API/configuration behavior; [STATE](.intent/state/STATE.md) guides installation and adaptation.
 
 ```sh
