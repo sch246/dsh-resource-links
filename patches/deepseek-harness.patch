@@ -1612,3 +1612,389 @@ index eaaccfcb20..68f98c1cf4 100644
    'command/executed': 'client-face local command acknowledgment — packages/client/ui-commands/README.md owns the API',
    'connection/reset': 'client-face transport signal — packages/api/session-controller/README.md owns the API',
    'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
+--- a/packages/client/ui-attachment/src/client/ComposerAttachments.tsx
++++ b/packages/client/ui-attachment/src/client/ComposerAttachments.tsx
+@@ -14,9 +14,9 @@
+   attachment: ComposerAttachment
+ }
+ 
+-/** Draft-image rail, document drop target, and original-image preview slot entry. */
++/** Draft-image rail, conversation-region drop target, and original-image preview slot entry. */
+ export function ComposerAttachments({
+-  attachments, canAcceptDrop, onAddImages, onRemoveImage, dropLimits, t,
++  attachments, canAcceptDrop, onAddImages, onRemoveImage, dropLimits, dropRegionId, t,
+ }: ComposerAttachmentsProps) {
+   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+   const [dragActive, setDragActive] = useState(false)
+@@ -47,36 +47,38 @@
+       const dataTransfer = fileTransfer(event)
+       if (dataTransfer === null) return
+       event.preventDefault()
++      event.stopPropagation()
+       dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+     }
+     const onDragLeave = (event: globalThis.DragEvent): void => {
+       if (fileTransfer(event) === null) return
+       dragDepth.current = Math.max(0, dragDepth.current - 1)
+       if (dragDepth.current === 0) setDragActive(false)
+-      const leftViewport = event.clientX <= 0 || event.clientY <= 0
+-        || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
+-      if ((event.target === document.documentElement || event.target === document.body) && leftViewport) reset()
+     }
+     const onDrop = (event: globalThis.DragEvent): void => {
+       const dataTransfer = fileTransfer(event)
+       if (dataTransfer === null) return
+       event.preventDefault()
++      event.stopPropagation()
+       reset()
+       if (canAcceptDrop) onAddImages([...dataTransfer.files])
+     }
+-    document.addEventListener('dragenter', onDragEnter)
+-    document.addEventListener('dragover', onDragOver)
+-    document.addEventListener('dragleave', onDragLeave)
+-    document.addEventListener('drop', onDrop)
++    const region = dropRegionId === undefined ? null : document.getElementById(dropRegionId)
++    if (region === null) return
++    region.addEventListener('dragenter', onDragEnter)
++    region.addEventListener('dragover', onDragOver)
++    region.addEventListener('dragleave', onDragLeave)
++    region.addEventListener('drop', onDrop)
+     window.addEventListener('dragend', reset)
+     return () => {
+-      document.removeEventListener('dragenter', onDragEnter)
+-      document.removeEventListener('dragover', onDragOver)
+-      document.removeEventListener('dragleave', onDragLeave)
+-      document.removeEventListener('drop', onDrop)
++      region.removeEventListener('dragenter', onDragEnter)
++      region.removeEventListener('dragover', onDragOver)
++      region.removeEventListener('dragleave', onDragLeave)
++      region.removeEventListener('drop', onDrop)
+       window.removeEventListener('dragend', reset)
++      reset()
+     }
+-  }, [canAcceptDrop, onAddImages])
++  }, [canAcceptDrop, dropRegionId, onAddImages])
+ 
+   const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
+     id: attachment.id,
+@@ -92,6 +94,7 @@
+         <DropOverlay
+           disabled={!canAcceptDrop}
+           labels={dropOverlayLabels(t, canAcceptDrop, dropLimits)}
++          container={dropRegionId === undefined ? undefined : document.getElementById(dropRegionId) ?? undefined}
+         />
+       )}
+       {railItems.length > 0 && (
+--- a/packages/client/ui-attachment/src/DropOverlay.tsx
++++ b/packages/client/ui-attachment/src/DropOverlay.tsx
+@@ -10,20 +10,18 @@
+ }
+ 
+ /**
+- * Full-viewport invitation shown while a file drag is over the page
+- * (DeepSeek Chat's DragMask). Decoration only: `pointer-events: none` keeps
+- * drag targeting on the page below, so the owner's document-level listeners
+- * keep an accurate enter/leave count and own accept/reject. Rendered through
+- * a body portal for the same transformed-ancestor reason as the lightbox.
++ * Invitation shown while a file drag is over the owning region. Decoration
++ * only: `pointer-events: none` keeps drag targeting on the region below.
+  *
+  * @param props.disabled - drops are currently refused; renders the blocked
+  * illustration and drops the desc line.
+  * @param props.labels - resolved title and limits strings.
+  * @returns the overlay layer.
+  */
+-export function DropOverlay({ disabled, labels }: {
++export function DropOverlay({ disabled, labels, container }: {
+   disabled: boolean
+   labels: DropOverlayLabels
++  container?: HTMLElement | undefined
+ }) {
+   return createPortal(
+     <div className={css.mask} role="status">
+@@ -35,7 +33,7 @@
+         {!disabled && labels.desc !== undefined && <div className={css.desc}>{labels.desc}</div>}
+       </div>
+     </div>,
+-    document.body,
++    container ?? document.body,
+   )
+ }
+ 
+--- a/packages/client/ui-conversation/src/client/contract/slots.ts
++++ b/packages/client/ui-conversation/src/client/contract/slots.ts
+@@ -38,7 +38,7 @@
+ export interface ComposerAttachmentsOwnerProps {
+   /** Browser-owned draft images in input order. */
+   attachments: readonly ComposerAttachment[]
+-  /** Whether a document-level file drop may add images now. */
++  /** Whether a file drop in the owning conversation region may add images now. */
+   canAcceptDrop: boolean
+   /** Add one dropped batch through the composer's validation path. */
+   onAddImages: (files: readonly File[]) => void
+@@ -46,6 +46,8 @@
+   onRemoveImage: (id: DraftAttachmentId) => void
+   /** Display-ready limits for the drop invitation. */
+   dropLimits?: { readonly count: number; readonly size: string } | undefined
++  /** Conversation root element that owns file drag/drop. */
++  dropRegionId?: string | undefined
+ }
+ 
+ /**
+@@ -275,6 +277,8 @@
+   rightItems?: ReactNode
+   /** Ambient content below the card. */
+   footer?: ReactNode
++  /** Conversation root element that owns file drag/drop. */
++  dropRegionId?: string | undefined
+ }
+ 
+ /** Package-private operations injected into the resident composer bar. */
+--- a/packages/client/ui-conversation/src/client/skeleton/InputBar.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/InputBar.tsx
+@@ -46,6 +46,7 @@
+   useProjection, sessionId, variant, disabled: inert = false, blocked,
+   workspacePickerOpen = false, onRequestWorkspace,
+   placeholder, accessory, overlay, leftItems, rightItems, footer,
++  dropRegionId,
+ }: InputBarProps) {
+   const input = useInput(s => s)
+   const notice = useNotices(s => s)
+@@ -402,6 +403,7 @@
+             count: imageLimits.maxImagesPerMessage,
+             size: imageSizeText(imageLimits.maxImageBytes),
+           },
++          dropRegionId,
+         })}
+         {/* One scrollport, one text surface: the contenteditable grows with
+             its content and .scroll — capped at 14 lines in CSS — is the only
+--- a/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
+@@ -2,7 +2,7 @@
+ // chain, AND the composer bar (session-maybe slot) stay mounted across
+ // no-session/session transitions — the bar renders inert via owner props.
+ 
+-import { useCallback, useEffect, useRef, useState } from 'react'
++import { useCallback, useEffect, useId, useRef, useState } from 'react'
+ import clsx from 'clsx'
+ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+ import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
+@@ -133,6 +133,7 @@
+   useWorkspaces, useConversation, useInput, useComposerBlock,
+   renderSlot, renderSlotChain, selectWorkspace, t,
+ }: ConversationRootProps) {
++  const dropRegionId = useId()
+   const session = useSession(s => s)
+   const pendingInteraction = useSessionPendingInteraction(snapshot =>
+     sessionId === undefined ? undefined : snapshot.get(sessionId))
+@@ -349,6 +350,7 @@
+     rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
+     // Ambient dock under the card shares the composer's width constraint.
+     footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
++    dropRegionId,
+   })
+ 
+   const composerBar = (
+@@ -378,7 +380,7 @@
+   )
+ 
+   return (
+-    <div ref={rootResizeRef} className={css.root} data-phase={phase}>
++    <div id={dropRegionId} ref={rootResizeRef} className={css.root} data-phase={phase}>
+       {sessionId === undefined ? null : renderSlot('conversation.session.header', {})}
+       <div className={css.body}>
+         <div className={css.scrollBody} data-conversation-scroll="">
+diff --git a/packages/client/ui-attachment/src/DropOverlay.module.css b/packages/client/ui-attachment/src/DropOverlay.module.css
+index 84e7e250bc..ab2365710e 100644
+--- a/packages/client/ui-attachment/src/DropOverlay.module.css
++++ b/packages/client/ui-attachment/src/DropOverlay.module.css
+@@ -1,7 +1,7 @@
+ /* Drag events must keep reaching the page so the owner's enter/leave count
+    stays balanced. */
+ .mask {
+-  position: fixed;
++  position: absolute;
+   inset: 0;
+   z-index: 1000;
+   display: flex;
+diff --git a/packages/client/ui-attachment/tests/composer-attachments.client.spec.tsx b/packages/client/ui-attachment/tests/composer-attachments.client.spec.tsx
+index ef77068f7e..41573f66aa 100644
+--- a/packages/client/ui-attachment/tests/composer-attachments.client.spec.tsx
++++ b/packages/client/ui-attachment/tests/composer-attachments.client.spec.tsx
+@@ -16,6 +16,7 @@ beforeEach(() => {
+ })
+ 
+ afterEach(() => {
++  document.querySelectorAll('[id^="chat-drop-region"]').forEach(element => { element.remove() })
+   cleanup()
+   vi.unstubAllGlobals()
+ })
+@@ -65,11 +66,15 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
+ }
+ 
+ describe('ComposerAttachments', () => {
+-  it('accepts file drops anywhere on the document and keeps non-file drags native', () => {
++  it('accepts file drops inside the chat region and keeps outside/non-file drags native', () => {
+     const onAddImages = vi.fn()
++    const region = document.createElement('div')
++    region.id = 'chat-drop-region'
++    document.body.append(region)
+     const view = render(<ComposerAttachments {...props({
+       onAddImages,
+       dropLimits: { count: 20, size: '5MB' },
++      dropRegionId: region.id,
+     })} />)
+ 
+     expect(fireEvent.dragEnter(document.body, { dataTransfer: null })).toBe(true)
+@@ -81,52 +86,63 @@ describe('ComposerAttachments', () => {
+ 
+     const image = attachment('dropped').file
+     const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'none' }
+-    expect(fireEvent.dragEnter(document.body, { dataTransfer })).toBe(false)
++    expect(fireEvent.dragEnter(document.body, { dataTransfer })).toBe(true)
++    expect(view.queryByRole('status')).toBeNull()
++    expect(fireEvent.drop(document.body, { dataTransfer })).toBe(true)
++    expect(onAddImages).not.toHaveBeenCalled()
++    expect(fireEvent.dragEnter(region, { dataTransfer })).toBe(false)
++    expect(view.getByRole('status').parentElement).toBe(region)
+     expect(view.getByRole('status').textContent).toContain('图片拖动到此处即可添加')
+     expect(view.getByRole('status').textContent).toContain('最多 20 张，每张 5MB')
+-    expect(fireEvent.dragOver(document.body, { dataTransfer })).toBe(false)
++    expect(fireEvent.dragOver(region, { dataTransfer })).toBe(false)
+     expect(dataTransfer.dropEffect).toBe('copy')
+-    expect(fireEvent.drop(document.body, { dataTransfer })).toBe(false)
++    expect(fireEvent.drop(region, { dataTransfer })).toBe(false)
+     expect(onAddImages).toHaveBeenCalledWith([image])
+     expect(view.queryByRole('status')).toBeNull()
+   })
+ 
+   it('tracks nested file drags and clears an aborted drag', () => {
+-    const view = render(<ComposerAttachments {...props()} />)
++    const region = document.createElement('div')
++    region.id = 'chat-drop-region-nested'
++    document.body.append(region)
++    const view = render(<ComposerAttachments {...props({ dropRegionId: region.id })} />)
+     const dataTransfer = { types: ['Files'], files: [], dropEffect: 'none' }
+-    fireEvent.dragLeave(document.body, {
++    fireEvent.dragLeave(region, {
+       dataTransfer: { types: ['text/plain'], files: [], dropEffect: 'none' },
+     })
+-    fireEvent.dragEnter(document.body, { dataTransfer })
+-    fireEvent.dragEnter(document.body, { dataTransfer })
+-    fireEvent.dragLeave(document.body, { dataTransfer, clientX: 5, clientY: 5 })
++    fireEvent.dragEnter(region, { dataTransfer })
++    fireEvent.dragEnter(region, { dataTransfer })
++    fireEvent.dragLeave(region, { dataTransfer, clientX: 5, clientY: 5 })
+     expect(view.getByRole('status')).toBeTruthy()
+-    fireEvent.dragLeave(document.body, { dataTransfer, clientX: 5, clientY: 5 })
++    fireEvent.dragLeave(region, { dataTransfer, clientX: 5, clientY: 5 })
+     expect(view.queryByRole('status')).toBeNull()
+-    fireEvent.dragEnter(document.documentElement, { dataTransfer })
++    fireEvent.dragEnter(region, { dataTransfer })
+     const leftViewport = new Event('dragleave', { bubbles: true, cancelable: true })
+     Object.defineProperties(leftViewport, {
+       dataTransfer: { value: dataTransfer },
+       clientX: { value: -1 },
+       clientY: { value: 5 },
+     })
+-    fireEvent(document.documentElement, leftViewport)
++    fireEvent(region, leftViewport)
+     expect(view.queryByRole('status')).toBeNull()
+-    fireEvent.dragEnter(document.body, { dataTransfer })
++    fireEvent.dragEnter(region, { dataTransfer })
+     fireEvent.dragEnd(window, { dataTransfer })
+     expect(view.queryByRole('status')).toBeNull()
+   })
+ 
+   it('shows a blocked drop without forwarding its files', () => {
+     const onAddImages = vi.fn()
+-    const view = render(<ComposerAttachments {...props({ canAcceptDrop: false, onAddImages })} />)
++    const region = document.createElement('div')
++    region.id = 'chat-drop-region-blocked'
++    document.body.append(region)
++    const view = render(<ComposerAttachments {...props({ canAcceptDrop: false, onAddImages, dropRegionId: region.id })} />)
+     const image = attachment('blocked').file
+     const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'copy' }
+-    fireEvent.dragEnter(document.body, { dataTransfer })
++    fireEvent.dragEnter(region, { dataTransfer })
+     expect(view.getByRole('status').textContent).toBe('当前无法添加图片')
+-    fireEvent.dragOver(document.body, { dataTransfer })
++    fireEvent.dragOver(region, { dataTransfer })
+     expect(dataTransfer.dropEffect).toBe('none')
+-    fireEvent.drop(document.body, { dataTransfer })
++    fireEvent.drop(region, { dataTransfer })
+     expect(onAddImages).not.toHaveBeenCalled()
+     expect(view.queryByRole('status')).toBeNull()
+   })
+--- a/packages/client/ui-attachment/README.md
++++ b/packages/client/ui-attachment/README.md
+@@ -1,5 +1,5 @@
+ ---
+-description: "Attachment presentation for the conversation UI: draft-image rail, document drop target, history-image gallery, and original-image lightbox; for users and maintainers of the Web attachment experience."
++description: "Attachment presentation for the conversation UI: draft-image rail, conversation-region drop target, history-image gallery, and original-image lightbox; for users and maintainers of the Web attachment experience."
+ kind: "package-reference"
+ ---
+ 
+@@ -9,7 +9,7 @@
+ 
+ ## Summary
+ 
+-This package renders everything the conversation UI shows about attachments: pending draft images under the composer, a full-viewport drop invitation, durable images in Chat and Trajectory, and a lightbox for the original image. It is a pure presentation layer — attachment data, image loading, and callbacks come from the conversation package through declared slots. Choose it for the DeepSeek Chat-style image experience; non-image files have no surface here.
++This package renders everything the conversation UI shows about attachments: pending draft images under the composer, a conversation-region drop invitation, durable images in Chat and Trajectory, and a lightbox for the original image. It is a pure presentation layer — attachment data, image loading, and callbacks come from the conversation package through declared slots. Choose it for the DeepSeek Chat-style image experience; non-image files have no surface here.
+ 
+ ## Table of Contents
+ 
+@@ -37,7 +37,7 @@
+ 
+ ### Drop overlay
+ 
+-While a file drag is over the page, the full-viewport overlay announces the drop: illustration, title, and a limits line when drops are accepted. The overlay only shows state — the owner's document-level listeners decide accept or reject.
++While a file drag is over the owning conversation region, the overlay announces the drop: illustration, title, and a limits line when drops are accepted. The owner supplies `dropRegionId`; when it is absent, the attachment renderer captures no drops. The overlay only shows state — the owner decides accept or reject.
+ 
+ -----
+ 
+@@ -47,7 +47,7 @@
+ <details>
+ <summary>Implementation internals — click to expand</summary>
+ 
+-The plugin waits for `conversation.input.attachments`, `conversation.message.images`, and `conversation.trajectory.images` through `ctx.slots.inject`. It then registers the composer rail, document drop target, shared history gallery for Chat and Trajectory, and original-image lightbox. The presentation components are pure props: the conversation slot owner supplies attachment data, image loading, callbacks, and the locale translator; the package entry exports no components.
++The plugin waits for `conversation.input.attachments`, `conversation.message.images`, and `conversation.trajectory.images` through `ctx.slots.inject`. It then registers the composer rail, conversation-region drop target, shared history gallery for Chat and Trajectory, and original-image lightbox. The presentation components are pure props: the conversation slot owner supplies attachment data, image loading, callbacks, the drop region id, and the locale translator; the package entry exports no components.
+ 
+ | File | Role |
+ |---|---|
+--- a/packages/client/ui-attachment/README.zh.md
++++ b/packages/client/ui-attachment/README.zh.md
+@@ -1,5 +1,5 @@
+ ---
+-description: "对话 UI 的附件呈现：草稿图片栏、文档拖放目标、历史图片画廊与原图灯箱；供 Web 附件体验的用户与维护者阅读。"
++description: "对话 UI 的附件呈现：草稿图片栏、对话区域拖放目标、历史图片画廊与原图灯箱；供 Web 附件体验的用户与维护者阅读。"
+ kind: "package-reference"
+ ---
+ 
+@@ -9,7 +9,7 @@
+ 
+ ## 概述
+ 
+-本包渲染对话 UI 中与附件相关的一切：composer 下的待发送草稿图片、全视口拖放邀请层、Chat 与 Trajectory 中的持久图片，以及查看原图的灯箱。它是纯呈现层——附件数据、图片加载与回调都经声明槽位来自 conversation 包。需要 DeepSeek Chat 风格的图片体验时选择它；非图片文件在此没有任何表面。
++本包渲染对话 UI 中与附件相关的一切：composer 下的待发送草稿图片、对话区域拖放邀请层、Chat 与 Trajectory 中的持久图片，以及查看原图的灯箱。它是纯呈现层——附件数据、图片加载与回调都经声明槽位来自 conversation 包。需要 DeepSeek Chat 风格的图片体验时选择它；非图片文件在此没有任何表面。
+ 
+ ## 目录
+ 
+@@ -37,7 +37,7 @@
+ 
+ ### 拖放遮罩
+ 
+-文件拖拽悬停页面时，全视口遮罩宣布可拖放：插画、标题，接受拖放时再加一行上限说明。遮罩只呈现状态——接受或拒绝由持有方的 document 级监听器决定。
++文件拖拽悬停所属对话区域时，遮罩宣布可拖放：插画、标题，接受拖放时再加一行上限说明。持有方通过 `dropRegionId` 指定区域；缺少该值时附件呈现器不捕获拖放。遮罩只呈现状态，接受或拒绝由持有方决定。
+ 
+ -----
+ 
+@@ -47,7 +47,7 @@
+ <details>
+ <summary>实现细节——点击展开</summary>
+ 
+-插件通过 `ctx.slots.inject` 等待 `conversation.input.attachments`、`conversation.message.images` 与 `conversation.trajectory.images`。随后它注册 composer rail、文档拖放目标、供 Chat 和 Trajectory 共用的历史图片 gallery，以及原图灯箱。呈现组件保持纯 props：conversation 槽位持有方提供附件数据、图片加载、回调与语言包翻译器；包入口不导出任何组件。
++插件通过 `ctx.slots.inject` 等待 `conversation.input.attachments`、`conversation.message.images` 与 `conversation.trajectory.images`。随后它注册 composer rail、对话区域拖放目标、供 Chat 和 Trajectory 共用的历史图片 gallery，以及原图灯箱。呈现组件保持纯 props：conversation 槽位持有方提供附件数据、图片加载、回调、拖放区域 id 与语言包翻译器；包入口不导出任何组件。
+ 
+ | 文件 | 职责 |
+ |---|---|
