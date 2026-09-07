@@ -3,6 +3,8 @@ import type { UserFileDeltaPolicy } from './types.ts'
 
 /** Defaults projected into validated provider Config and standalone filesystem construction. */
 export const defaultDeltaPolicy: UserFileDeltaPolicy = {
+  diffBackend: 'auto',
+  hdiffpatchCommand: 'hdiffz',
   maxDeltaBytes: 1048576,
   baselineBytes: 268435456,
   baselineEntries: 16,

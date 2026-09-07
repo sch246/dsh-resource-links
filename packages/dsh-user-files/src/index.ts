@@ -17,6 +17,8 @@ export type Config = UserFileMetadata
 
 /** All deployment-varying bounds are validated before mounting the Remote. */
 export const Config: z<Config> = z.object({
+  diffBackend: z.union(['auto', 'builtin', 'hdiffpatch'] as const).default('auto'),
+  hdiffpatchCommand: z.string().pattern(/\S/u).default('hdiffz'),
   enabled: z.boolean().default(false),
   maxResolveBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(1048576),

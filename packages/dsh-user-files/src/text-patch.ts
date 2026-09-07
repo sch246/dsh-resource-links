@@ -43,21 +43,12 @@ export function diffTextLines(base: string, local: string, options: TextLineDiff
   const changes = diffArrays(oldLines, newLines, { timeout: deadline - Date.now(),
     ...(options.maxEditLength === undefined ? {} : { maxEditLength: options.maxEditLength }) })
   if (changes === undefined || Date.now() > deadline) return undefined
-  const ranges: { oldFrom: number; oldTo: number; newFrom: number; newTo: number }[] = []
+  const ranges: TextLineRange[] = []
   let oldPosition = 0
   let newPosition = 0
-  let pending: typeof ranges[number] | undefined
+  let pending: TextLineRange | undefined
   const flush = (): void => {
-    if (pending === undefined) return
-    if (pending.oldFrom === pending.oldTo && oldLines.length > 0) {
-      if (pending.oldFrom > 0) { pending.oldFrom--; pending.newFrom-- }
-      else { pending.oldTo++; pending.newTo++ }
-    }
-    const previous = ranges.at(-1)
-    if (previous !== undefined && pending.oldFrom <= previous.oldTo) {
-      previous.oldTo = Math.max(previous.oldTo, pending.oldTo)
-      previous.newTo = Math.max(previous.newTo, pending.newTo)
-    } else ranges.push(pending)
+    if (pending !== undefined) ranges.push(pending)
     pending = undefined
   }
   for (const change of changes) {
@@ -74,6 +65,38 @@ export function diffTextLines(base: string, local: string, options: TextLineDiff
     }
   }
   flush()
+  return materializeTextLineRanges(oldLines, newLines, ranges)
+}
+
+/** Ordered original/replacement token coordinates, before insertion context expansion. */
+export interface TextLineRange {
+  oldFrom: number
+  oldTo: number
+  newFrom: number
+  newTo: number
+}
+
+/**
+ * Expand insertion context and merge adjacent ranges for both diff backends.
+ * @param oldLines Original LF tokens. @param newLines Replacement LF tokens. @param changes Ordered disjoint changes.
+ * @returns Hash-ready original-coordinate changes; input coordinates are not mutated.
+ */
+export function materializeTextLineRanges(
+  oldLines: readonly string[], newLines: readonly string[], changes: readonly TextLineRange[],
+): TextLineChange[] {
+  const ranges: TextLineRange[] = []
+  for (const change of changes) {
+    const pending = { ...change }
+    if (pending.oldFrom === pending.oldTo && oldLines.length > 0) {
+      if (pending.oldFrom > 0) { pending.oldFrom--; pending.newFrom-- }
+      else { pending.oldTo++; pending.newTo++ }
+    }
+    const previous = ranges.at(-1)
+    if (previous !== undefined && pending.oldFrom <= previous.oldTo) {
+      previous.oldTo = Math.max(previous.oldTo, pending.oldTo)
+      previous.newTo = Math.max(previous.newTo, pending.newTo)
+    } else ranges.push(pending)
+  }
   return ranges.map(range => ({
     startLine: range.oldFrom, lineCount: range.oldTo - range.oldFrom,
     oldText: oldLines.slice(range.oldFrom, range.oldTo).join(''),

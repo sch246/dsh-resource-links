@@ -165,6 +165,10 @@ export interface UserFileSaveResult {
 
 /** Deployment-owned budgets for automatic text deltas and canonical baseline retention. */
 export interface UserFileDeltaPolicy {
+  /** Optional native acceleration; omission resolves to auto for standalone callers. */
+  readonly diffBackend?: 'auto' | 'builtin' | 'hdiffpatch'
+  /** Executable name or path, without shell arguments; omission resolves to hdiffz. */
+  readonly hdiffpatchCommand?: string
   readonly maxDeltaBytes: number
   readonly baselineBytes: number
   readonly baselineEntries: number

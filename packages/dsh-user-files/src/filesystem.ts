@@ -7,8 +7,9 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { lookup as lookupMediaType } from 'mime-types'
+import { TextDeltaBackend, NativeDiffError } from './hdiffpatch.ts'
 import { defaultDeltaPolicy } from './delta-policy.ts'
-import { diffTextLines, prepareTextPatches, validateTextPatchRanges, TextPatchError } from './text-patch.ts'
+import { prepareTextPatches, validateTextPatchRanges, TextPatchError } from './text-patch.ts'
 import type {
   UserFileTextReadPlan, UserFileTextChunk,
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
@@ -242,6 +243,7 @@ function restoreEol(text: string, revision: RevisionPayload): string {
 
 function mapNodeError(error: unknown, path: string): UserFileFilesystemError {
   if (error instanceof UserFileFilesystemError) return error
+  if (error instanceof NativeDiffError) return new UserFileFilesystemError('unavailable', path, error.message, { cause: error })
   if (error instanceof TextPatchError) return new UserFileFilesystemError(error.code, path, error.message, { cause: error })
   const code = typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: unknown }).code)
@@ -284,6 +286,7 @@ export class UserFileFilesystem {
   readonly #textReadChunkBytes: number
   #mutationTail: Promise<void> = Promise.resolve()
   readonly #deltaPolicy: UserFileDeltaPolicy
+  readonly #deltaBackend: TextDeltaBackend
   readonly #baselines = new Map<string, { text: string; payload: RevisionPayload; metadata: UserFilePatchResult; cost: number }>()
   #baselineBytes = 0
   #activeDeltas = 0
@@ -298,6 +301,7 @@ export class UserFileFilesystem {
     this.#maxTextReadBytes = maxTextReadBytes
     this.#maxByteReadBytes = maxByteReadBytes
     this.#deltaPolicy = { ...deltaPolicy }
+    this.#deltaBackend = new TextDeltaBackend(this.#deltaPolicy)
   }
 
   /** Follow one existing path and return metadata without reading file content. */
@@ -634,11 +638,12 @@ export class UserFileFilesystem {
     }
   }
 
-  /** Release retained baselines and prevent in-flight completions from repopulating the disposed provider. */
-  dispose(): void {
+  /** Clear retained baselines, prevent late cache publication, and await native job termination and cleanup. */
+  dispose(): Promise<void> {
     this.#disposed = true
     this.#baselines.clear()
     this.#baselineBytes = 0
+    return this.#deltaBackend.dispose()
   }
 
   #remember(text: string, payload: RevisionPayload): UserFilePatchResult {
@@ -712,9 +717,7 @@ export class UserFileFilesystem {
       const text = canonicalText(decoded)
       const metadata = this.#remember(text, { ...current.payload, ...eolMetadata(decoded) })
       if (metadata.canonicalHash === baseHash) return this.#boundedDelta({ kind: 'unchanged', ...metadata }, limit)
-      const changes = diffTextLines(baseline.text, text, {
-        timeout: this.#deltaPolicy.deltaDiffTimeoutMs, maxEditLength: this.#deltaPolicy.deltaMaxEditLength,
-      })
+      const changes = await this.#deltaBackend.diff(baseline.text, text, signal)
       signal.throwIfAborted()
       if (changes === undefined) return { kind: 'manual-required', reason: 'diff-budget' }
       const ranges: UserFileTextPatch[] = []
