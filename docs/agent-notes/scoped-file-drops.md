@@ -1,7 +1,5 @@
-# Scoped external file drops
+# Independent file-drop ownership
 
-The conversation shell supplies a serializable receiving-region id through the composer and attachment owner props. The existing attachment plugin binds native file events to that element and draws its overlay within it. An absent region supplies no drop target. Sidebar drops cannot add Chat attachments; non-file drags retain their native behavior. Image admission remains the composer’s responsibility.
+The `@dsh-external/dsh-file-drop` plugin owns native-file region registration, routing and its minimal Host adaptation. Its STATE owns installation, upstream inspection, adaptation and removal. Chat attachment admission remains in the composer; manager owns directory upload and its group-local overlay. Sidebar owns layout and internal docking only. Cooperation is optional and does not create a filesystem-provider dependency.
 
-Right-sidebar owns each group’s content geometry and active-instance dispatch. A feature registers its own acceptance and file callback, and removes that registration with its lifetime. Manager consumes this independently for current-directory uploads; sidebar never owns filesystem policy. Tabs and internal docking remain separate from OS file intake.
-
-The user-files repository distributes the attributable Host adapter, not a replacement attachment implementation. Adapt the conversation and attachment code together, rebuild their declarations and Clients, and retain other plugins’ Host changes. An existing receipt must be checked against its previous patch before recording an explicitly verified upgrade. Removing manager or Links does not remove Chat attachment capability.
+An installation with a combined user-files/drop receipt needs an explicit transfer: preserve the old patch and receipt, verify its source contributions, apply the replacement drop implementation, and verify the independent drop patch and retained opening/Markdown patch before recording their separate receipts. Do not reverse the historical combined patch while either contribution is retained. Generated catalogs and browser artifacts must reflect the resulting owners.

@@ -161,3 +161,7 @@ Executed `DSH_CHECKOUT=/root/deepseek-harness pnpm run build` and `DSH_CHECKOUT=
 ## 2026-09-07 — Separate conversation and group file drops
 
 The user reported that file-drop capture covered both sidebars and requested per-group handling alongside manager upload/download controls. The installation map now assigns Chat intake to the existing attachment plugin and independent group dispatch to sidebar; cooperation creates no new feature dependency. The adapter build route includes conversation and attachment owners. Execution evidence is recorded separately in the task application record.
+
+## 2026-09-07 — Transfer file-drop maintenance to its own plugin
+
+The user clarified that file-drop behavior needs an independent plugin and STATE maintenance map, with optional manager integration and manager-owned target overlays. The provider retains only opening/Markdown Host adaptation. The former combined receipt is an explicit ownership-transfer input, not permission to reverse unrelated contributions; application evidence belongs to the selected installation record.
