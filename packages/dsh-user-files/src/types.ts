@@ -115,6 +115,27 @@ export interface UserFileSaveRequest extends UserFileReadTextRequest {
   readonly version: UserFileRevision
 }
 
+/** Resolved Save As target; an existing regular file carries its exact overwrite revision. */
+export interface UserFileTextSaveAsPlan {
+  readonly path: string
+  readonly name: string
+  readonly exists: boolean
+  readonly revision?: UserFileRevision
+}
+
+/** Canonical LF document for an absent target or an explicitly revision-guarded overwrite. */
+export interface UserFileSaveAsRequest extends UserFileReadTextRequest {
+  readonly text: string
+  /** Omission requires an absent target at atomic publication. */
+  readonly expectedRevision?: UserFileRevision
+}
+
+/** Published Save As identity and complete canonical content metadata. */
+export interface UserFileSaveAsResult extends UserFilePatchResult {
+  readonly path: string
+  readonly name: string
+}
+
 /** Original zero-based LF-token range; terminated lines include LF and an empty document has no tokens. */
 export interface UserFileTextPatch {
   readonly startLine: number

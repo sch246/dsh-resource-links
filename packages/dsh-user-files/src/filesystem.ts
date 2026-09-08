@@ -3,7 +3,7 @@ import { constants as bufferConstants } from 'node:buffer'
 import type { FileHandle } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import {
-  open, realpath, rename, rm, stat,
+  link, lstat, open, realpath, rename, rm, stat,
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { lookup as lookupMediaType } from 'mime-types'
@@ -11,7 +11,7 @@ import { TextDeltaBackend, NativeDiffError } from './hdiffpatch.ts'
 import { defaultDeltaPolicy } from './delta-policy.ts'
 import { prepareTextPatches, validateTextPatchRanges, TextPatchError } from './text-patch.ts'
 import type {
-  UserFileTextReadPlan, UserFileTextChunk,
+  UserFileTextReadPlan, UserFileTextChunk, UserFileTextSaveAsPlan, UserFileSaveAsResult,
   UserFileEntryKind, UserFileResolvedPath, UserFileRevision,
   UserFileSaveResult, UserFileTextDocument, UserFileTextStreamEvent, UserFileTextPatch, UserFilePatchResult, UserFileDeltaRequest, UserFileDeltaResult, UserFileDeltaPolicy,
 } from './types.ts'
@@ -239,6 +239,17 @@ function restoreEol(text: string, revision: RevisionPayload): string {
     const symbol = pattern[index++] ?? pattern.at(-1) ?? 'l'
     return symbol === 'w' ? '\r\n' : symbol === 'r' ? '\r' : '\n'
   })
+}
+
+function saveAsEncoding(current: ReadBytesResult): Pick<RevisionPayload, 'eol' | 'mixedEolPattern'> & { bom: string } {
+  try {
+    const decoded = decodeText(current.bytes, current.path)
+    const bom = current.bytes[0] === 0xef && current.bytes[1] === 0xbb && current.bytes[2] === 0xbf ? '\uFEFF' : ''
+    return { ...eolMetadata(decoded), bom }
+  } catch (error: unknown) {
+    if (!(error instanceof UserFileFilesystemError) || error.code !== 'not-text') throw error
+    return { eol: 'none', bom: '' }
+  }
 }
 
 function mapNodeError(error: unknown, path: string): UserFileFilesystemError {
@@ -530,6 +541,113 @@ export class UserFileFilesystem {
         return { ...saved.payload, ...eolMetadata(savedText) }
       },
     )
+  }
+
+  /**
+   * Resolve an existing regular file or an absent leaf in an existing directory.
+   * @param path Destination. @param signal Request cancellation. @param allowLargeFile Existing-content approval.
+   * @param maxConfirmedBytes Inclusive existing-content ceiling. @returns Target identity and optional exact overwrite revision.
+   */
+  async prepareTextSaveAs(path: string, signal: AbortSignal, allowLargeFile = false, maxConfirmedBytes?: number): Promise<UserFileTextSaveAsPlan> {
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    const target = await this.#saveAsTarget(path, signal)
+    if (!target.exists) return target
+    const current = await this.#readFileBytes(target.path, signal, policy)
+    const { bom: _bom, ...encoding } = saveAsEncoding(current)
+    return { path: current.path, name: basename(current.path), exists: true,
+      revision: encodeRevision({ ...current.payload, ...encoding }) }
+  }
+
+  /**
+   * Publish a complete canonical document to a new or explicitly guarded existing target.
+   * @param path Destination. @param text Well-formed LF text without NUL. @param expectedRevision Prepared overwrite revision, absent for create-only.
+   * @param signal Cancellation before publication. @param allowLargeFile Existing-content approval.
+   * @param maxConfirmedBytes Inclusive existing-content ceiling. @returns Published identity and complete canonical metadata.
+   */
+  async saveTextAs(
+    path: string, text: string, expectedRevision: UserFileRevision | undefined, signal: AbortSignal,
+    allowLargeFile = false, maxConfirmedBytes?: number,
+  ): Promise<UserFileSaveAsResult> {
+    const policy = this.#textPolicy(path, allowLargeFile, maxConfirmedBytes)
+    if (typeof text !== 'string' || /[\r\0]/u.test(text) || !text.isWellFormed()
+      || (expectedRevision !== undefined && typeof expectedRevision !== 'string')) {
+      throw new UserFileFilesystemError('invalid-request', path, 'Save As requires well-formed canonical LF text and an optional revision string')
+    }
+    return await this.mutate(signal, async () => {
+      const target = await this.#saveAsTarget(path, signal)
+      let saved: ReadBytesResult
+      if (expectedRevision === undefined) {
+        if (target.exists) throw new UserFileFilesystemError('already-exists', target.path, `path "${target.path}" already exists`)
+        saved = await this.#createText(target.path, Buffer.from(text), signal)
+      } else {
+        if (!target.exists) throw new UserFileFilesystemError('stale-version', target.path, `path "${target.path}" no longer exists`)
+        const expected = parseRevision(expectedRevision, target.path)
+        const current = await this.#readFileBytes(target.path, signal, policy)
+        if (expected.path !== current.path || !sameStat(expected.stat, current.payload.stat) || expected.sha256 !== current.payload.sha256) {
+          throw new UserFileFilesystemError('stale-version', target.path, `path "${target.path}" changed after Save As was prepared`)
+        }
+        const { bom, ...encoding } = saveAsEncoding(current)
+        const bytes = Buffer.from(bom + restoreEol(text, { ...current.payload, ...encoding }))
+        saved = await this.#replace(current.path, current.payload, bytes, signal, policy)
+      }
+      const decoded = decodeText(saved.bytes, saved.path)
+      return { path: saved.path, name: basename(saved.path),
+        ...this.#remember(canonicalText(decoded), { ...saved.payload, ...eolMetadata(decoded) }) }
+    })
+  }
+
+  async #saveAsTarget(path: string, signal: AbortSignal): Promise<UserFileTextSaveAsPlan> {
+    signal.throwIfAborted()
+    const input = normalizedAbsolute(path)
+    try {
+      const parent = await realpath(dirname(input))
+      if (!(await stat(parent)).isDirectory()) {
+        throw new UserFileFilesystemError('not-directory', parent, `path "${parent}" is not a directory`)
+      }
+      const target = join(parent, basename(input))
+      let exists = true
+      try { await lstat(target) } catch (error: unknown) {
+        if (mapNodeError(error, target).code !== 'not-found') throw error
+        exists = false
+      }
+      signal.throwIfAborted()
+      if (!exists) return { path: target, name: basename(target), exists: false }
+      const metadata = await this.resolveExisting(target)
+      signal.throwIfAborted()
+      if (metadata.kind !== 'file') throw new UserFileFilesystemError('not-file', metadata.path, `path "${metadata.path}" is not a regular file`)
+      return { path: metadata.path, name: metadata.name, exists: true }
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw mapNodeError(error, input)
+    }
+  }
+
+  async #createText(canonical: string, bytes: Uint8Array, signal: AbortSignal): Promise<ReadBytesResult> {
+    const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
+    let staged = false
+    try {
+      signal.throwIfAborted()
+      const handle = await open(stage, 'wx', 0o666)
+      staged = true
+      try {
+        await handle.writeFile(bytes, { signal })
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      signal.throwIfAborted()
+      await link(stage, canonical)
+      // Removing the staging link changes ctime; capture the published revision afterward.
+      await rm(stage)
+      staged = false
+      return await this.#readFileBytes(canonical, new AbortController().signal, { kind: 'text', thresholdBytes: Infinity })
+    } catch (error: unknown) {
+      throw mapNodeError(error, canonical)
+    } finally {
+      if (staged) {
+        try { await rm(stage, { force: true }) } catch { /* A failed stage cleanup cannot replace the primary failure. */ }
+      }
+    }
   }
 
   /**

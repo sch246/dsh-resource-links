@@ -7,6 +7,7 @@ import {
   UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, resolveUserPath,
 } from './filesystem.ts'
 import type { UserFileTextReadPlan, UserFileTextChunkRequest, UserFileTextChunk, UserFileFinishTextReadRequest, UserFileDeltaRequest, UserFileDeltaResult, UserFilePatchRequest, UserFilePatchResult, UserFileMetadata, UserFileTextStreamEvent, UserFileReadTextRequest, UserFilePathRequest, UserFileResolvedPath, UserFileSaveBytesRequest, UserFileSaveRequest, UserFileSaveResult, UserFileTextDocument, UserFileBytesDocument, UserFileResolveManyRequest, UserFileResolveManyResult } from './types.ts'
+import type { UserFileTextSaveAsPlan, UserFileSaveAsRequest, UserFileSaveAsResult } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { userFiles: UserFileRemote }
@@ -197,6 +198,39 @@ export class UserFileRemote extends TypertRemoteService {
       const path = await this.absolute(request, signal)
       return await this.filesystem.saveText(path, request.text, request.version, signal, request.allowLargeFile, request.maxConfirmedBytes)
     })
+  }
+
+  /**
+   * Resolve a Save As target and obtain an exact revision before overwrite confirmation.
+   * @param request Session, destination and existing-content approval. @param signal Request cancellation.
+   * @returns Canonical target identity, existence and optional overwrite revision.
+   */
+  @Remote('prepareTextSaveAs')
+  async prepareTextSaveAs(request: UserFileReadTextRequest, signal: AbortSignal): Promise<UserFileTextSaveAsPlan> {
+    return await this.guard(signal, async () => this.filesystem.prepareTextSaveAs(
+      await this.saveAsAbsolute(request, signal), signal, request.allowLargeFile, request.maxConfirmedBytes,
+    ))
+  }
+
+  /**
+   * Create text without clobbering a concurrent file, or replace the explicitly prepared revision.
+   * @param request Session, target, canonical LF text and optional overwrite revision. @param signal Cancellation before publication.
+   * @returns Published canonical identity, revision, byte count and complete canonical hash.
+   */
+  @Remote('saveTextAs')
+  async saveTextAs(request: UserFileSaveAsRequest, signal: AbortSignal): Promise<UserFileSaveAsResult> {
+    return await this.guard(signal, async () => this.filesystem.saveTextAs(
+      await this.saveAsAbsolute(request, signal), request.text, request.expectedRevision, signal,
+      request.allowLargeFile, request.maxConfirmedBytes,
+    ))
+  }
+
+  private async saveAsAbsolute(request: UserFilePathRequest, signal: AbortSignal): Promise<string> {
+    if (typeof request.sessionId !== 'string' || request.sessionId.trim() === ''
+      || typeof request.path !== 'string' || request.path.includes('\0')) {
+      throw new UserFileFilesystemError('invalid-request', '', 'Save As requires a Session and a valid path string')
+    }
+    return resolveUserPath(request.path, await this.cwdOf(request.sessionId, signal))
   }
 
   /**
