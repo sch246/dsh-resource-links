@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-user-files",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Authenticated user-file access with optional Markdown inline-code links",
   "private": true,
   "type": "module",
