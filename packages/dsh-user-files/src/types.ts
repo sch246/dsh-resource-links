@@ -1,3 +1,4 @@
+import type { UserFileDownloadPolicy } from './download-policy.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Opaque revision produced by an exact content and metadata read. */
@@ -199,7 +200,7 @@ export interface UserFileDeltaPolicy {
 }
 
 /** Validated deployment policy delivered by the Host metadata Remote. */
-export interface UserFileMetadata extends UserFileDeltaPolicy {
+export interface UserFileMetadata extends UserFileDeltaPolicy, UserFileDownloadPolicy {
   readonly maxResolveBatchSize: number
   /** Inclusive text size accepted without explicit large-file confirmation. */
   readonly maxTextReadBytes: number

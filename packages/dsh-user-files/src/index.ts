@@ -1,3 +1,4 @@
+import { defaultDownloadPolicy } from './download-policy.ts'
 /** Host-owned configuration for the browser resource-link policy. */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -20,6 +21,10 @@ export type Config = UserFileMetadata
 export const Config: z<Config> = z.object({
   diffBackend: z.union(['auto', 'builtin', 'hdiffpatch'] as const).default('auto'),
   hdiffpatchCommand: z.string().pattern(/\S/u).default('hdiffz'),
+  downloadConcurrency: z.number().step(1).min(1).max(8).default(defaultDownloadPolicy.downloadConcurrency),
+  downloadChunkBytes: z.number().step(1).min(65536).max(16777216).default(defaultDownloadPolicy.downloadChunkBytes),
+  downloadRetries: z.number().step(1).min(0).max(5).default(defaultDownloadPolicy.downloadRetries),
+  downloadTimeoutMs: z.number().step(1).min(1000).max(300000).default(defaultDownloadPolicy.downloadTimeoutMs),
   enabled: z.boolean().default(false),
   maxResolveBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(1048576),
@@ -47,5 +52,5 @@ export function apply(ctx: Context, config: Config): void {
   const filesystem = new UserFileFilesystem(config.maxTextReadBytes, config.maxByteReadBytes, config, config.textReadChunkBytes)
   ctx.effect(() => () => filesystem.dispose())
   new UserFileRemote(ctx, filesystem, config)
-  ctx.inject(['connection', 'webServer'], web => { registerFileTransfers(web, config.maxUploadBytes) })
+  ctx.inject(['connection', 'webServer'], web => { registerFileTransfers(web, config.maxUploadBytes, config) })
 }

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { defaultDownloadPolicy, type UserFileDownloadPolicy } from './download-policy.ts'
 /** Authenticated binary HTTP transfers, with staged exclusive upload publication. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -82,8 +84,8 @@ function statusOf(error: unknown): number {
   return 500
 }
 
-/** Mount one raw-binary route under the same trust and cookie checks as Remote calls. @param ctx Owning Host context. @param maxUploadBytes Inclusive per-file upload bound. */
-export function registerFileTransfers(ctx: Context, maxUploadBytes: number): void {
+/** Mount one raw-binary route under the same trust and cookie checks as Remote calls. @param ctx Owning Host context. @param maxUploadBytes Inclusive per-file upload bound. @param policy Browser parallel download limits. */
+export function registerFileTransfers(ctx: Context, maxUploadBytes: number, policy: UserFileDownloadPolicy = defaultDownloadPolicy): void {
   ctx.effect(() => {
     const lifetime = new AbortController()
     const active = new Set<Promise<void>>()
@@ -126,6 +128,14 @@ export function registerFileTransfers(ctx: Context, maxUploadBytes: number): voi
           const stat = await handle.stat()
           if (!stat.isFile()) throw new TransferError(400, 'Download target must be a regular file.')
           signal.throwIfAborted()
+          const version = createHash('sha256').update(JSON.stringify([resolved.path, stat.dev, stat.ino, stat.size, stat.mode, stat.mtimeMs, stat.ctimeMs])).digest('hex')
+          const expected = req.headers['x-dsh-file-version']
+          if (expected !== undefined && expected !== version) throw new TransferError(412, 'The file changed during download.')
+          res.setHeader('X-DSH-File-Version', version)
+          res.setHeader('X-DSH-Download-Policy', JSON.stringify({
+            downloadConcurrency: policy.downloadConcurrency, downloadChunkBytes: policy.downloadChunkBytes,
+            downloadRetries: policy.downloadRetries, downloadTimeoutMs: policy.downloadTimeoutMs,
+          }))
           const filename = encodeURIComponent(basename(path)).replace(/['()*]/gu, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
           const disposition = url.searchParams.get('disposition') ?? 'attachment'
           if (disposition !== 'inline' && disposition !== 'attachment') throw new TransferError(400, 'Use inline or attachment disposition.')

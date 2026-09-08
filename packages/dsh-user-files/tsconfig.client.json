@@ -9,7 +9,8 @@
   "include": [
     "src/client",
     "src/types.ts",
-    "src/file-location.ts"
+    "src/file-location.ts",
+    "src/download-policy.ts"
   ],
   "references": [
     {

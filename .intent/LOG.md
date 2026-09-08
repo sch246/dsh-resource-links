@@ -173,3 +173,7 @@ The user clarified that file-drop behavior needs an independent plugin and STATE
 ## 2026-09-08 native PDF and media
 
 [Implementation and activation](logs/2026-09-08-native-pdf-media.md).
+
+## 2026-09-09 parallel downloads
+
+[Implementation and activation](logs/2026-09-09-parallel-downloads.md).

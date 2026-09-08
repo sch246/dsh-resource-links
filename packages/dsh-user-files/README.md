@@ -64,6 +64,10 @@ The neutral `text-patch` export provides `diffTextLines(base, local, { timeout?,
 | `openMode` | `preview` | Common opening policy: handlers then native, or `system` to bypass handlers. |
 | `maxResolveBatchSize` | `128` | Inclusive metadata request count. |
 | `maxTextReadBytes` | `1048576` | Inclusive existing text-file bytes loaded without confirmation. |
+| `downloadConcurrency` | `4` | Parallel browser range requests, 1–8. |
+| `downloadChunkBytes` | `1048576` | Bytes per browser download range, 64 KiB–16 MiB. |
+| `downloadRetries` | `2` | Additional attempts for failed ranges, 0–5. |
+| `downloadTimeoutMs` | `30000` | Per-range timeout in milliseconds, 1–300 seconds. |
 | `maxUploadBytes` | `10737418240` | Inclusive HTTP upload limit per file, independent of Remote byte limits. |
 | `maxByteReadBytes` | `16777216` | Inclusive byte read/save bytes. |
 | `textReadChunkBytes` | `1048576` | Positive safe-integer raw chunk bytes, capped to fit a Buffer and its base64 string. |
@@ -106,3 +110,11 @@ GET and HEAD address regular files. Attachment is the default; `disposition: 'in
 PUT addresses a directory with a single child `name` and a raw binary body. The provider streams into private same-filesystem staging, enforces `maxUploadBytes` before known-length bodies and during every transfer, then publishes through the shared mutation queue using a create-only hard link. Existing entries are never overwritten. Unsupported hard links fail visibly; cancellation and failures remove unfinished staging. Completed publication is not undone by a later disconnect. Provider disposal unregisters the route, aborts active transfers and awaits their cleanup.
 
 For existing manager installations, move the effective `maxUploadBytes` into the complete user-files configuration row and remove it from manager. Preserve unrelated fields and Home/profile overrides. Migrate any exact proxy location to `/api/user-files/transfer`; retain forwarding/authentication headers and deployment timeouts, match the upload bound (`client_max_body_size 10g` for the default), and disable request/response buffering. Do not raise the unrelated JSON gateway limit. Binary previews and manager controls share this transport; each consumer owns its UI and loading policy.
+
+### Parallel downloads to the browser machine
+
+The browser-safe `download` export supplies `downloadBrowserFile(url, name, signal, onProgress?, nativeOnly?)`. Call it directly from the download click: `showSaveFilePicker` requires transient user activation and is invoked before awaiting metadata. Where direct file writing is supported in a secure context, it fetches disjoint ranges concurrently and serializes positioned writes to the browser's temporary file. Each worker retains at most one configured chunk. Failed network/timeout/408/429/5xx ranges have bounded retries; incorrect range/version/length responses fail visibly. Cancellation aborts outstanding requests and the temporary writer. The local file is committed only after all writes and a final source metadata check; failures do not replace a selected existing file. Choosing a new destination can leave its browser-created empty entry on cancellation.
+
+HEAD advertises validated download policy and `X-DSH-File-Version`, a fingerprint of canonical path and open-file stat fields. Every range and final HEAD send that version; mismatch returns 412 before content. The client checks response version, coordinates and length. This avoids joining ordinarily changed file revisions, but is not a content digest or filesystem snapshot: changes that preserve all observed metadata remain outside this guarantee. The streamed bytes are not interpreted or normalized.
+
+Unsupported direct-writing browsers or explicit `nativeOnly: true` retain ordinary browser download after an authenticated HEAD. Native handoff has browser-owned progress and cancellation; it does not imply parallel transfer. The helper requires provider ^0.1.12, and its URLs remain compatible with ordinary downloads and media Range requests. Controls, progress placement and cancellation ownership belong to the consumer. The PDF browser toolbar retains its native download action; custom parallel download uses the workbench control.

@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-user-files",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Authenticated user-file access with optional Markdown inline-code links",
   "private": true,
   "type": "module",
@@ -43,6 +43,10 @@
     "./transfer": {
       "types": "./lib/types/transfer-url.d.ts",
       "default": "./lib/types/transfer-url.js"
+    },
+    "./download": {
+      "types": "./lib/types/download.d.ts",
+      "default": "./lib/types/download.js"
     }
   },
   "files": [
