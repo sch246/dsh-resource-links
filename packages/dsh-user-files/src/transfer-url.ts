@@ -8,7 +8,7 @@ export const USER_FILE_TRANSFER_PATH = '/api/user-files/transfer'
 export interface UserFileTransferRequest extends UserFilePathRequest {
   /** PUT child filename; path identifies its parent directory. */
   readonly name?: string
-  /** Defaults to attachment. Inline is honored only for PDF and approved passive image types. */
+  /** Defaults to attachment. Inline is honored only for PDF and approved image/audio/video types. */
   readonly disposition?: 'inline' | 'attachment'
 }
 

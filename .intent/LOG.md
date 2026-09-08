@@ -169,3 +169,7 @@ The user clarified that file-drop behavior needs an independent plugin and STATE
 ## 2026-09-08 shared binary transfers
 
 [Ownership extraction and activation](logs/2026-09-08-shared-binary-transfers.md).
+
+## 2026-09-08 native PDF and media
+
+[Implementation and activation](logs/2026-09-08-native-pdf-media.md).

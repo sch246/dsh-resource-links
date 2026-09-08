@@ -13,6 +13,8 @@ import { Transform, type Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 const inlineMediaTypes = new Set([
+  'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/aac', 'audio/flac', 'audio/x-flac',
+  'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska',
   'application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon',
 ])
 
@@ -44,6 +46,24 @@ export async function uploadFile(filesystem: UserFileFilesystem, parent: string,
   } finally {
     await rm(staging, { recursive: true, force: true })
   }
+}
+
+/** One byte range; undefined means ignored syntax/multipart, null means unsatisfiable. */
+function byteRange(header: string | undefined, size: number): { start: number; end: number } | null | undefined {
+  if (header === undefined) return undefined
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (match === null || (match[1] === '' && match[2] === '')) return undefined
+  const length = BigInt(size)
+  if (match[1] === '') {
+    const suffix = BigInt(match[2]!)
+    if (suffix === 0n || length === 0n) return null
+    return { start: Number(suffix >= length ? 0n : length - suffix), end: size - 1 }
+  }
+  const start = BigInt(match[1]!)
+  const end = match[2] === '' ? length - 1n : BigInt(match[2]!)
+  if (match[2] !== '' && end < start) return undefined
+  if (start >= length) return null
+  return { start: Number(start), end: Number(end >= length ? length - 1n : end) }
 }
 
 function requiredQuery(url: URL, key: string): string {
@@ -115,9 +135,26 @@ export function registerFileTransfers(ctx: Context, maxUploadBytes: number): voi
           res.setHeader('Content-Type', mediaType)
           res.setHeader('X-Content-Type-Options', 'nosniff')
           res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}`)
-          res.setHeader('Content-Length', stat.size)
+          res.setHeader('Accept-Ranges', 'bytes')
+          // Without a representation validator, If-Range cannot establish an unchanged file.
+          const range = req.method === 'GET' && req.headers['if-range'] === undefined
+            ? byteRange(req.headers.range, stat.size) : undefined
+          if (range === null) {
+            res.setHeader('Content-Range', `bytes */${stat.size}`)
+            res.setHeader('Content-Length', 0)
+            res.statusCode = 416
+            res.end()
+            return
+          }
+          const start = range?.start ?? 0
+          const end = range?.end ?? stat.size - 1
+          if (range !== undefined) {
+            res.statusCode = 206
+            res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+          }
+          res.setHeader('Content-Length', end - start + 1)
           if (req.method === 'HEAD' || stat.size === 0) res.end()
-          else await pipeline(handle.createReadStream({ autoClose: false, end: stat.size - 1 }), res, { signal })
+          else await pipeline(handle.createReadStream({ autoClose: false, start, end }), res, { signal })
         } finally { await handle.close() }
       } catch (error: unknown) {
         if (res.destroyed) return
