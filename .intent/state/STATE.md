@@ -101,3 +101,7 @@ The runtime artifact is `@dsh-external/dsh-user-files` in this repository. Prese
 The current Host adapter combines the initial viewer Chat waterfall, Links text-decoration support and the common cancellable opener. Its exact baseline and patch hash are recorded in the ownership note. Preserve old Links and viewer patches and receipts before transfer. Existing source plus old receipts must be attributed hunk by hunk; the new ownership helper refuses automatic adoption. Do not reverse a whole old viewer patch or remove separately owned Typert `externalProjectReferences`. Uninstallation may remove the shared adapter only when user-files has no declared consumers.
 
 For current-tab navigation consumers, build user-files >=0.1.9 declarations before rebuilding viewer or manager. Preserve the common opening request object across waterfall delegation; UI consumers own cancellation and destination commit through their sidebar API. Provider/Links keep no sidebar dependency, history or focus state.
+
+## Maintenance verification
+
+Confirmed product behavior is maintained in this map. Do not regenerate a parallel UI, routing or service-workflow test suite from it. Use direct observation for the affected interaction; retain only useful external-contract, artifact-compatibility and mechanical-integrity checks, selecting them when that surface changes. The root manifest lists any retained check entry; it is not a mandatory maintenance gate. [The cleanup record](../logs/2026-09-08-test-authority-cleanup.md) explains the selection and what was actually checked.

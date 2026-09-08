@@ -35,12 +35,6 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.2
         version: 3.18.2
-      '@testing-library/dom':
-        specifier: ^10.4.1
-        version: 10.4.1
-      '@testing-library/react':
-        specifier: ^16.3.2
-        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/mime-types':
         specifier: ^2.1.4
         version: 2.1.4
@@ -53,9 +47,6 @@ importers:
       '@types/semver':
         specifier: ^7.7.1
         version: 7.8.0
-      jsdom:
-        specifier: ^26.1.0
-        version: 26.1.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
