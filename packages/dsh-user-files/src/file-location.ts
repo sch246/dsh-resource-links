@@ -1,5 +1,16 @@
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 
+/**
+ * Presentation intent for one workspace-file destination.
+ * `replace: 'current'` asks a handler that owns `viewId` to move that tab instead of adding one;
+ * `sourceInstanceId` names the sidebar instance a click started from.
+ */
+export interface WorkspaceFileOpenIntent {
+  readonly viewId?: string
+  readonly replace?: 'current'
+  readonly sourceInstanceId?: string
+}
+
 /** @param path Complete destination. @returns Path without location and optional one-based editor selection. */
 export function parseFileLocation(path: string): { path: string; textSelection?: { line: number; column?: number } } {
   const match = /(?::([1-9]\d*)(?::([1-9]\d*))?|#L([1-9]\d*)(?:C([1-9]\d*))?)(?:-L?[1-9]\d*(?:C[1-9]\d*)?)?$/u.exec(path)
@@ -11,7 +22,7 @@ export function parseFileLocation(path: string): { path: string; textSelection?:
 }
 
 declare module '@deepseek-ai/dsh-client-ui-chat/client' {
-  interface ChatFileOpenRequest {
+  interface ChatFileOpenRequest extends WorkspaceFileOpenIntent {
     readonly textSelection?: { readonly line: number; readonly column?: number }
   }
 }
