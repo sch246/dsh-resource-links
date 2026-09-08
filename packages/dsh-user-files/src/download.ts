@@ -1,7 +1,7 @@
-/** Bounded parallel Range downloads to a browser-selected file, with native-download fallback. */
+/** Shared guarded Range loading with independent memory-preview and local-file destinations. */
 import { defaultDownloadPolicy, type UserFileDownloadPolicy } from './download-policy.ts'
 
-/** Bytes committed to the temporary local writer; completion is the download promise resolving. */
+/** Bytes accepted by the destination; completion is the operation promise resolving. */
 export interface DownloadProgress { readonly completedBytes: number; readonly totalBytes: number }
 interface Writer {
   write(command: { type: 'write'; position: number; data: ArrayBuffer }): Promise<void>
@@ -40,35 +40,14 @@ async function checkedHead(url: string, signal: AbortSignal, version?: string): 
   return response
 }
 
-/** Call directly from a user click so choosing a destination retains browser activation.
- * @param url Same-origin authenticated binary endpoint.
- * @param name Suggested local filename.
- * @param signal Caller cancellation.
- * @param onProgress Progress after each successful positioned write.
- * @param nativeOnly Explicit ordinary download, bypassing the local writer.
- * @returns Completion of the local file commit, or native browser handoff when direct writing is unavailable.
- */
-export async function downloadBrowserFile(url: string, name: string, signal: AbortSignal, onProgress?: (progress: DownloadProgress) => void, nativeOnly = false): Promise<void> {
-  signal.throwIfAborted()
-  const picker = (window as unknown as SaveWindow).showSaveFilePicker
-  if (nativeOnly || picker === undefined || !window.isSecureContext) {
-    await checkedHead(url, signal)
-    signal.throwIfAborted()
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = name
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    return
-  }
-  let handle: SaveHandle
-  try { handle = await picker.call(window, { suggestedName: name }) }
-  catch (error: unknown) {
-    if (error instanceof DOMException && error.name === 'AbortError' && !signal.aborted) return
-    throw error
-  }
-  signal.throwIfAborted()
+interface PreparedTransfer {
+  readonly size: number
+  readonly version: string
+  readonly policy: UserFileDownloadPolicy
+  readonly mediaType: string
+}
+
+async function prepare(url: string, signal: AbortSignal): Promise<PreparedTransfer> {
   const metadata = await checkedHead(url, signal)
   const policy = policyFrom(metadata)
   const rawSize = metadata.headers.get('content-length') ?? ''
@@ -76,9 +55,14 @@ export async function downloadBrowserFile(url: string, name: string, signal: Abo
   const version = metadata.headers.get('x-dsh-file-version') ?? ''
   if (!/^\d+$/.test(rawSize) || !Number.isSafeInteger(size) || !/^[a-f0-9]{64}$/.test(version)
     || metadata.headers.get('accept-ranges') !== 'bytes') throw new DownloadFailure('Invalid parallel download metadata.')
+  return { size, version, policy, mediaType: metadata.headers.get('content-type') ?? 'application/octet-stream' }
+}
+
+async function readRanges(url: string, plan: PreparedTransfer, signal: AbortSignal,
+  accept: (offset: number, bytes: ArrayBuffer) => Promise<void>, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+  const { size, version, policy } = plan
   const controller = new AbortController()
   const combined = AbortSignal.any([signal, controller.signal])
-  const writer = await handle.createWritable()
   let completed = 0
   let next = 0
   let writeQueue: Promise<void> = Promise.resolve()
@@ -113,7 +97,7 @@ export async function downloadBrowserFile(url: string, name: string, signal: Abo
         combined.throwIfAborted()
         const write = writeQueue.then(async () => {
           combined.throwIfAborted()
-          await writer.write({ type: 'write', position: start, data })
+          await accept(start, data)
           completed += data.byteLength
           onProgress?.({ completedBytes: completed, totalBytes: size })
         })
@@ -130,12 +114,63 @@ export async function downloadBrowserFile(url: string, name: string, signal: Abo
     combined.throwIfAborted()
     const final = await checkedHead(url, AbortSignal.any([combined, AbortSignal.timeout(policy.downloadTimeoutMs)]), version)
     if (final.headers.get('x-dsh-file-version') !== version || Number(final.headers.get('content-length')) !== size) throw new DownloadFailure('The source changed during download.')
-    await writer.truncate(size)
-    combined.throwIfAborted()
+  } finally { controller.abort() }
+}
+
+/** Load bytes in parallel into a Blob without a file picker or local file write.
+ * @param url Authenticated binary endpoint.
+ * @param signal Caller cancellation.
+ * @param onProgress Received byte progress.
+ * @returns Complete validated Blob; callers own any object URL they create.
+ */
+export async function readBrowserFile(url: string, signal: AbortSignal, onProgress?: (progress: DownloadProgress) => void): Promise<Blob> {
+  const plan = await prepare(url, signal)
+  const parts: ArrayBuffer[] = []
+  try {
+    await readRanges(url, plan, signal, async (offset, data) => { parts[offset / plan.policy.downloadChunkBytes] = data }, onProgress)
+    signal.throwIfAborted()
+    return new Blob(parts, { type: plan.mediaType })
+  } finally { parts.length = 0 }
+}
+
+/** Call directly from a user click so choosing a destination retains browser activation.
+ * @param url Same-origin authenticated binary endpoint.
+ * @param name Suggested local filename.
+ * @param signal Caller cancellation.
+ * @param onProgress Progress after each successful positioned write.
+ * @param nativeOnly Explicit ordinary download, bypassing the local writer.
+ * @returns Local file commit or native browser handoff when direct writing is unavailable.
+ */
+export async function downloadBrowserFile(url: string, name: string, signal: AbortSignal, onProgress?: (progress: DownloadProgress) => void, nativeOnly = false): Promise<void> {
+  signal.throwIfAborted()
+  const picker = (window as unknown as SaveWindow).showSaveFilePicker
+  if (nativeOnly || picker === undefined || !window.isSecureContext) {
+    await checkedHead(url, signal)
+    signal.throwIfAborted()
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = name
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    return
+  }
+  let handle: SaveHandle
+  try { handle = await picker.call(window, { suggestedName: name }) }
+  catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError' && !signal.aborted) return
+    throw error
+  }
+  signal.throwIfAborted()
+  const plan = await prepare(url, signal)
+  const writer = await handle.createWritable()
+  try {
+    await readRanges(url, plan, signal, (position, data) => writer.write({ type: 'write', position, data }), onProgress)
+    await writer.truncate(plan.size)
+    signal.throwIfAborted()
     await writer.close()
-    onProgress?.({ completedBytes: size, totalBytes: size })
+    onProgress?.({ completedBytes: plan.size, totalBytes: plan.size })
   } catch (error: unknown) {
-    controller.abort(error)
     try { await writer.abort(error) } catch { /* A failed or already-closed writer has no pending publication to abort. */ }
     throw error
   }
