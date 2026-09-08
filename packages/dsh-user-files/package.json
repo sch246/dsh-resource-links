@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-user-files",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Authenticated user-file access with optional Markdown inline-code links",
   "private": true,
   "type": "module",
@@ -22,6 +22,10 @@
     "./client": {
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
+    },
+    "./file-location": {
+      "types": "./lib/types/file-location.d.ts",
+      "default": "./lib/types/file-location.js"
     },
     "./remote": {
       "types": "./lib/typert.remote-client.d.ts",

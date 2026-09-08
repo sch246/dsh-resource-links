@@ -8,7 +8,8 @@
   },
   "include": [
     "src/client",
-    "src/types.ts"
+    "src/types.ts",
+    "src/file-location.ts"
   ],
   "references": [
     {

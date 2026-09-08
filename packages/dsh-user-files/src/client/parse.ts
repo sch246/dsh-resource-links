@@ -1,9 +1,25 @@
+import { parseFileLocation } from '../file-location.ts'
+
 /** Candidate recognition only; existence and canonical identity belong to the file manager. */
 export interface Candidate {
   readonly start: number
   readonly end: number
   readonly target: string
   readonly label?: string
+}
+
+/** Parsed filesystem destination with an optional editor source location. */
+export interface FilesystemTarget {
+  readonly path: string
+  readonly textSelection?: { readonly line: number; readonly column?: number }
+}
+
+
+/** @param target Complete destination. @returns Normalized path and optional source location. */
+export function parseFilesystemTarget(target: string): FilesystemTarget | undefined {
+  const parsed = parseFileLocation(target)
+  const normalized = filesystemPath(parsed.path)
+  return normalized === undefined ? undefined : { path: normalized, ...(parsed.textSelection === undefined ? {} : { textSelection: parsed.textSelection }) }
 }
 
 /** @param target Complete destination. @returns Session id for an explicit session reference. */
@@ -13,14 +29,20 @@ export function sessionTarget(target: string): string | undefined {
 
 /** @param target Exact destination, including optional source position. @param allowBasename Whether explicit destinations may name extensionless files/directories. @returns Local path, or undefined for unsupported/ambiguous destinations. */
 export function filesystemTarget(target: string, allowBasename = true): string | undefined {
-  let path = target.replace(/(?::[1-9]\d*(?::[1-9]\d*)?|#L[1-9]\d*(?:C[1-9]\d*)?(?:-L?[1-9]\d*(?:C[1-9]\d*)?)?)$/u, '')
+  const parsed = parseFilesystemTarget(target)
+  if (parsed === undefined) return undefined
+  return filesystemPath(parsed.path, allowBasename)
+}
+
+function filesystemPath(input: string, allowBasename = true): string | undefined {
+  let path = input
   if (path.startsWith('file:')) {
     try {
       const url = new URL(path)
       if (url.protocol !== 'file:' || (url.hostname !== '' && url.hostname !== 'localhost') || url.search !== '' || url.hash !== '') return undefined
-      path = decodeURIComponent(url.pathname)
+      path = decodeURIComponent(url.pathname).replace(/^\/(?=[a-z]:[\\/])/iu, '')
     } catch { return undefined }
-  } else if (/^[a-z][a-z\d+.-]*:/iu.test(path)) return undefined
+  } else if (/^[a-z][a-z\d+.-]*:/iu.test(path) && !/^[a-z]:[\\/]/iu.test(path)) return undefined
   if (path === '' || /[\u0000-\u001f\u007f]/u.test(path) || path.includes('://') || /^[^/\s]+@[^/\s]+\.[^/\s]+/u.test(path) || path.startsWith('//')) return undefined
   if (path === '.' || path === '..' || path.startsWith('/') || path.startsWith('./') || path.startsWith('../')) return path
   if (path.includes('/') || /^[^\s.][^/]*\.[\p{L}\p{N}_-]+$/u.test(path)) return path

@@ -3,7 +3,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatTextLinks, TextLink } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { UserFileResolvedPath, UserFileResolveManyResult } from '@dsh-external/dsh-user-files/types'
 import type { UserFileMetadata } from '../types.ts'
-import { candidates, filesystemTarget, sessionTarget } from './parse.ts'
+import { candidates, parseFilesystemTarget, sessionTarget } from './parse.ts'
 
 /** Injected services; no text or byte reads are available to discovery. */
 export interface Gateway {
@@ -11,7 +11,7 @@ export interface Gateway {
   readonly knownSession: (sessionId: SessionId) => boolean
   readonly resolveMany: (sessionId: SessionId, paths: readonly string[], signal: AbortSignal) => Promise<readonly UserFileResolveManyResult[]>
   readonly resolve: (sessionId: SessionId, path: string, signal: AbortSignal) => Promise<UserFileResolvedPath>
-  readonly openFile: (sessionId: SessionId, path: string, signal: AbortSignal) => Promise<void>
+  readonly openFile: (sessionId: SessionId, path: string, signal: AbortSignal, textSelection?: { readonly line: number; readonly column?: number }) => Promise<void>
   readonly openSession: (sessionId: SessionId) => void
 }
 
@@ -46,9 +46,9 @@ export class ResourceLinksRuntime implements ChatTextLinks {
       const session = sessionTarget(item.target)
       if (session !== undefined) return this.gateway.knownSession(session as SessionId) ? item : undefined
       const cwd = this.gateway.cwd(sessionId)
-      const path = filesystemTarget(item.target)
-      if (!this.gateway.knownSession(sessionId) || path === undefined) return undefined
-      const value = await this.lookup(sessionId, cwd, path)
+      const parsed = parseFilesystemTarget(item.target)
+      if (!this.gateway.knownSession(sessionId) || parsed === undefined) return undefined
+      const value = await this.lookup(sessionId, cwd, parsed.path)
       if (this.disposed || this.gateway.cwd(sessionId) !== cwd) return undefined
       return value !== undefined && (value.kind === 'file' || value.kind === 'directory') ? item : undefined
     }))
@@ -64,14 +64,14 @@ export class ResourceLinksRuntime implements ChatTextLinks {
       this.gateway.openSession(session as SessionId)
       return
     }
-    const path = filesystemTarget(target)
-    if (path === undefined) throw new Error(`Unsupported resource target: ${target}`)
+    const parsed = parseFilesystemTarget(target)
+    if (parsed === undefined) throw new Error(`Unsupported resource target: ${target}`)
     await this.track(async signal => {
       // Clicks revalidate metadata even when the displayed link came from a successful cache entry.
-      const resolved = await this.gateway.resolve(sessionId, path, signal)
+      const resolved = await this.gateway.resolve(sessionId, parsed.path, signal)
       this.assertActive()
       if (resolved.kind !== 'file' && resolved.kind !== 'directory') throw new Error(`Unsupported filesystem resource: ${resolved.path}`)
-      await this.gateway.openFile(sessionId, resolved.path, signal)
+      await this.gateway.openFile(sessionId, resolved.path, signal, resolved.kind === 'file' ? parsed.textSelection : undefined)
     })
   }
 

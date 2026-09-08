@@ -27,7 +27,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         knownSession: sessionId => ctx.sessions.list.getSnapshot().byId[sessionId] !== undefined,
         resolveMany: async (sessionId, paths, signal) => valueOf(await ctx.remote.userFiles.resolveMany({ sessionId, paths }, signal)),
         resolve: async (sessionId, path, signal) => valueOf(await ctx.remote.userFiles.resolve({ sessionId, path }, signal)),
-        openFile: (sessionId, path, signal) => openWorkspaceFile(ctx, { sessionId, path, preview: true, signal }),
+        openFile: (sessionId, path, signal, textSelection) => openWorkspaceFile(ctx, { sessionId, path, preview: true, signal, ...(textSelection === undefined ? {} : { textSelection }) }),
         openSession: sessionId => { ctx.sessions.open(sessionId) },
       }, { ...config, maxBatchSize: Math.min(config.maxBatchSize, config.maxResolveBatchSize) })
       ctx.effect(() => () => runtime.dispose())
