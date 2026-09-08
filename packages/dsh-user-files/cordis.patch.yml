@@ -5,6 +5,7 @@
         enabled: false
         maxResolveBatchSize: 128
         maxTextReadBytes: 1048576
+        maxUploadBytes: 10737418240
         maxByteReadBytes: 16777216
         openMode: preview
         batchDelayMs: 10

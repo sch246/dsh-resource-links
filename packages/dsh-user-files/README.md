@@ -64,6 +64,7 @@ The neutral `text-patch` export provides `diffTextLines(base, local, { timeout?,
 | `openMode` | `preview` | Common opening policy: handlers then native, or `system` to bypass handlers. |
 | `maxResolveBatchSize` | `128` | Inclusive metadata request count. |
 | `maxTextReadBytes` | `1048576` | Inclusive existing text-file bytes loaded without confirmation. |
+| `maxUploadBytes` | `10737418240` | Inclusive HTTP upload limit per file, independent of Remote byte limits. |
 | `maxByteReadBytes` | `16777216` | Inclusive byte read/save bytes. |
 | `textReadChunkBytes` | `1048576` | Positive safe-integer raw chunk bytes, capped to fit a Buffer and its base64 string. |
 | `streamChunkBytes` | `262144` | Positive safe-integer maximum raw bytes per sequential text stream read. |
@@ -95,3 +96,13 @@ To enable native delta computation, obtain `hdiffz` separately from the [officia
 Set `diffBackend: hdiffpatch` and `hdiffpatchCommand: /absolute/path/to/hdiffz` on the existing user-files plugin's `config` row to require native computation. Use `auto` to allow missing/incompatible-tool fallback, or `builtin` to avoid native processes. Preserve the complete existing configuration row and use the installation map's selected-profile workflow. Reloading the selected provider applies configuration and resets the capability cache; package setup does not install the tool or restart the service. Adjust the existing timeout deliberately if native startup or large snapshots need more time. Native acceleration is an optional execution path, not a claim that every file or machine is faster.
 
 Consumers of current-tab navigation intent require user-files ^0.1.9. Its shared `file-location` declaration carries `viewId`, `replace: 'current'`, `sourceInstanceId` and text selection on the existing Host file-opening request. Keep the same request object through waterfall delegation so optional UI handlers can share cancellation and commit ownership. The provider and Links do not depend on sidebar or either UI handler.
+
+## Binary HTTP transfers
+
+With `connection` and `webServer` available, the provider optionally mounts `/api/user-files/transfer`. Without these services, its ordinary file APIs remain available. Consumers require ^0.1.10 and import `userFileTransferUrl` from the browser-safe `@dsh-external/dsh-user-files/transfer` export; manager, viewer and Links are not prerequisites. Requests use the existing Host/Origin and cookie authentication, with `sessionId` and Session-relative or absolute `path` query fields.
+
+GET and HEAD address regular files. Attachment is the default; `disposition: 'inline'` permits PDF and passive raster images, while HTML, SVG and other types remain attachments. Responses use resolved MIME types, `nosniff`, `no-store, no-transform`, exact initial byte length and the original filename. GET streams raw bytes with backpressure without whole-file JSON/base64 or the Remote `maxByteReadBytes` limit. It does not implement HTTP Range requests or snapshot concurrent external writes: the opened file and initial size determine the transfer, and in-place changes can affect delivered bytes.
+
+PUT addresses a directory with a single child `name` and a raw binary body. The provider streams into private same-filesystem staging, enforces `maxUploadBytes` before known-length bodies and during every transfer, then publishes through the shared mutation queue using a create-only hard link. Existing entries are never overwritten. Unsupported hard links fail visibly; cancellation and failures remove unfinished staging. Completed publication is not undone by a later disconnect. Provider disposal unregisters the route, aborts active transfers and awaits their cleanup.
+
+For existing manager installations, move the effective `maxUploadBytes` into the complete user-files configuration row and remove it from manager. Preserve unrelated fields and Home/profile overrides. Migrate any exact proxy location to `/api/user-files/transfer`; retain forwarding/authentication headers and deployment timeouts, match the upload bound (`client_max_body_size 10g` for the default), and disable request/response buffering. Do not raise the unrelated JSON gateway limit. Binary previews and manager controls share this transport; each consumer owns its UI and loading policy.

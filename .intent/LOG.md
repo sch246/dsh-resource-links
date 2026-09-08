@@ -165,3 +165,7 @@ The user reported that file-drop capture covered both sidebars and requested per
 ## 2026-09-07 — Transfer file-drop maintenance to its own plugin
 
 The user clarified that file-drop behavior needs an independent plugin and STATE maintenance map, with optional manager integration and manager-owned target overlays. The provider retains only opening/Markdown Host adaptation. The former combined receipt is an explicit ownership-transfer input, not permission to reverse unrelated contributions; application evidence belongs to the selected installation record.
+
+## 2026-09-08 shared binary transfers
+
+[Ownership extraction and activation](logs/2026-09-08-shared-binary-transfers.md).

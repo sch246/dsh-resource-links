@@ -203,6 +203,8 @@ export interface UserFileMetadata extends UserFileDeltaPolicy {
   readonly maxResolveBatchSize: number
   /** Inclusive text size accepted without explicit large-file confirmation. */
   readonly maxTextReadBytes: number
+  /** Inclusive raw HTTP upload bound; independent of the buffered byte-RPC limit. */
+  readonly maxUploadBytes: number
   readonly maxByteReadBytes: number
   /** Maximum raw bytes per sequential text stream read. */
   readonly streamChunkBytes: number

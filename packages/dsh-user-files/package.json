@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-user-files",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Authenticated user-file access with optional Markdown inline-code links",
   "private": true,
   "type": "module",
@@ -39,6 +39,10 @@
     "./install": {
       "types": "./lib/types/install.d.ts",
       "default": "./lib/types/install.js"
+    },
+    "./transfer": {
+      "types": "./lib/types/transfer-url.d.ts",
+      "default": "./lib/types/transfer-url.js"
     }
   },
   "files": [
@@ -73,7 +77,9 @@
     "@deepseek-ai/dsh-typert-protocol": ">=0.1.2-alpha.2 <1",
     "@deepseek-ai/schemastery": ">=3.18.2 <4",
     "@deepseek-ai/dsh-session": ">=0.1.2-alpha.2 <1",
-    "@deepseek-ai/dsh-session-persistence": ">=0.1.2-alpha.2 <1"
+    "@deepseek-ai/dsh-session-persistence": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.2-alpha.2 <1"
   },
   "dependencies": {
     "zod": "^4.4.3",
@@ -81,5 +87,13 @@
     "semver": "^7.7.2",
     "diff": "8.0.4"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-host-webserver": {
+      "optional": true
+    }
+  }
 }

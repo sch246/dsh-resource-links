@@ -30,7 +30,9 @@
     "react-dom": "^18.3.1",
     "@deepseek-ai/dsh-session-persistence": "0.1.2-alpha.2",
     "@types/mime-types": "^2.1.4",
-    "@types/semver": "^7.7.1"
+    "@types/semver": "^7.7.1",
+    "@deepseek-ai/dsh-client-connection": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.2-alpha.2"
   },
   "pnpm": {
     "overrides": {

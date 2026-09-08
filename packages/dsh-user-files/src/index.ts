@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { UserFileFilesystem, defaultTextReadChunkBytes, maxTextReadChunkBytes } from './filesystem.ts'
 import { UserFileRemote } from './remote.ts'
 import { defaultDeltaPolicy } from './delta-policy.ts'
+import { registerFileTransfers } from './transfers.ts'
 export { UserFileFilesystem, UserFileFilesystemError, UserFileConfirmationRequiredError, normalizedAbsolute, resolveUserPath } from './filesystem.ts'
 export { UserFileRemote } from './remote.ts'
 export type * from './types.ts'
@@ -22,6 +23,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(false),
   maxResolveBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(1048576),
+  maxUploadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(10 * 1024 ** 3),
   maxByteReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(16777216),
   streamChunkBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(262144),
   textReadChunkBytes: z.number().step(1).min(1).max(maxTextReadChunkBytes).default(defaultTextReadChunkBytes),
@@ -45,4 +47,5 @@ export function apply(ctx: Context, config: Config): void {
   const filesystem = new UserFileFilesystem(config.maxTextReadBytes, config.maxByteReadBytes, config, config.textReadChunkBytes)
   ctx.effect(() => () => filesystem.dispose())
   new UserFileRemote(ctx, filesystem, config)
+  ctx.inject(['connection', 'webServer'], web => { registerFileTransfers(web, config.maxUploadBytes) })
 }
